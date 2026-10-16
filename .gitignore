@@ -1,0 +1,47 @@
+# ============ 构建中间产物 ============
+# pack.sh 的临时构建目录（panel/*.tar.gz 是要提交的发布产物，不能忽略）
+.build/
+
+# ============ Python / 后端 ============
+__pycache__/
+*.py[cod]
+*$py.class
+backend/.venv/
+backend/.venv-test/
+backend/.tmp-test/
+.venv/
+.venv-test/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+# SQLite：任何散落的数据库文件都不该进仓库
+*.db
+*.db-wal
+*.db-shm
+backend/data/*.db
+
+# ============ 测试/诊断残留 ============
+backend/probe-*/
+backend/tests-verify-probe/
+backend/tmp*/
+nohup.out
+*.log
+
+# ============ Node / 前端 ============
+node_modules/
+frontend/node_modules/
+.vite/
+# 注意：frontend/ovpnmanager/ 是**故意提交**的前端构建产物，
+# 安装载荷需要它，服务器上因此无需 Node。不要忽略。
+
+# ============ 编辑器 / 系统 ============
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# ============ 本地凭据（绝不提交） ============
+.env
+*.pem
+*.key
+!backend/.env-example

@@ -1,0 +1,12 @@
+# 面板降权用的 sudoers 规则（由 ovpn-oneclick 安装脚本生成到
+# /etc/sudoers.d/ovpnmanager，权限 0440，并用 visudo -c 校验）。
+#
+# 目的：面板以普通用户 __PANEL_USER__ 运行，只被授权操作这一个 OpenVPN 服务，
+# 而不是让整个 Web 应用以 root 身份运行。
+
+__PANEL_USER__ ALL=(root) NOPASSWD: __SYSTEMCTL__ start __OVPN_SERVICE__
+__PANEL_USER__ ALL=(root) NOPASSWD: __SYSTEMCTL__ stop __OVPN_SERVICE__
+__PANEL_USER__ ALL=(root) NOPASSWD: __SYSTEMCTL__ restart __OVPN_SERVICE__
+__PANEL_USER__ ALL=(root) NOPASSWD: __SYSTEMCTL__ is-active __OVPN_SERVICE__
+__PANEL_USER__ ALL=(root) NOPASSWD: __SYSTEMCTL__ status --no-pager --full __OVPN_SERVICE__
+__PANEL_USER__ ALL=(root) NOPASSWD: __SYSTEMCTL__ show -p * __OVPN_SERVICE__

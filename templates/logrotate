@@ -1,0 +1,23 @@
+# 日志轮转（由 ovpn-oneclick 安装脚本生成到 /etc/logrotate.d/ovpnmanager）
+
+/var/log/openvpn/*.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    su root root
+}
+
+__PANEL_HOME__/logs/*.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    su __PANEL_USER__ __PANEL_USER__
+}

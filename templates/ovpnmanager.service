@@ -1,0 +1,42 @@
+[Unit]
+Description=OpenVPN Web Admin Panel (ovpnmanager)
+After=network-online.target
+Wants=network-online.target
+After=__OVPN_SERVICE__.service
+
+[Service]
+Type=simple
+User=__PANEL_USER__
+Group=__PANEL_USER__
+WorkingDirectory=__PANEL_HOME__/backend
+EnvironmentFile=__PANEL_HOME__/backend/.env
+# --workers 1 是刻意的：面板使用 SQLite，且进程内维护 management 连接复用、
+# TTL 缓存、熔断状态与证书签发后台任务队列；多 worker 会各存一份并争抢写锁。
+ExecStart=__PANEL_HOME__/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port __PANEL_PORT__ --workers 1 --no-server-header
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+
+# ---- 加固 ----
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+# 面板新建的文件默认私有（数据库、日志）。注意：必须由 OpenVPN 读取的
+# 文件（CRL、CCD）在代码里显式 chmod 0644，不受这里的 umask 影响。
+UMask=0077
+# ProtectSystem=full 会把 /etc 与 /var 挂成只读，这里显式放开面板必须写入的位置：
+# 证书体系（签发/吊销）、CCD 固定 IP、客户端导出、CRL、服务端配置与其备份、状态日志
+ReadWritePaths=/etc/openvpn
+ReadWritePaths=/var/log/openvpn
+ReadWritePaths=__PANEL_HOME__/backend/data
+ReadWritePaths=__PANEL_HOME__/logs
+
+[Install]
+WantedBy=multi-user.target

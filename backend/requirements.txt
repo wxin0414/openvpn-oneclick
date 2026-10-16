@@ -1,0 +1,20 @@
+# 放宽版本约束：原文件把版本钉死在上古版本，在 Python 3.13/3.14 上
+# pydantic-core 等依赖往往没有预编译 wheel，会退回源码编译（需要 Rust）而失败。
+# 区间约束让同一份 requirements 能在 Python 3.10 ~ 3.14 上解析出可用组合。
+fastapi>=0.110,<1.0
+uvicorn[standard]>=0.27,<1.0
+SQLAlchemy>=2.0.25,<3.0
+pydantic>=2.6,<3.0
+pydantic-settings>=2.1,<3.0
+python-dotenv>=1.0
+# 口令哈希仍使用 passlib 的 bcrypt_sha256 方案，保证既有用户口令可直接沿用。
+# bcrypt 钉在 <4.1：4.1.0 移除了 __about__，会让 passlib 1.7.4 每次哈希都打印
+# "(trapped) error reading bcrypt version" 警告（原部署日志里就有）。
+passlib[bcrypt]>=1.7.4
+bcrypt>=4.0,<4.1
+python-jose>=3.3
+python-multipart>=0.0.9
+pydantic[email]
+# zoneinfo 的时区数据：Linux 通常自带 /usr/share/zoneinfo，但 Windows 开发和
+# 精简容器里没有，缺了会导致 app.utils.time 导入即失败（面板起不来）。
+tzdata
