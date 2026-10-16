@@ -2,7 +2,7 @@
 
 # openvpn-oneclick
 
-> 仓库地址：<https://gitee.com/mycool007/openvpn-oneclick>（分支 `main`）
+> 仓库地址：<https://github.com/wxin0414/openvpn-oneclick>（分支 `main`）
 
 ## 项目简介
 
@@ -47,7 +47,7 @@
 全自动安装（使用默认值）：
 
 ```bash
-wget -O install.sh https://gitee.com/mycool007/openvpn-oneclick/raw/main/install.sh
+wget -O install.sh https://raw.githubusercontent.com/wxin0414/openvpn-oneclick/main/install.sh
 sudo bash install.sh --auto
 ```
 

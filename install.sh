@@ -11,7 +11,7 @@
 #  安装时只从本仓库下载，**不依赖任何第三方 GitHub 项目**。
 #
 #  快速开始：
-#      wget -O install.sh https://gitee.com/<owner>/<repo>/raw/main/install.sh
+#      wget -O install.sh https://raw.githubusercontent.com/wxin0414/openvpn-oneclick/main/install.sh
 #      sudo bash install.sh --auto
 #
 #  完整用法：sudo bash install.sh --help
@@ -25,7 +25,7 @@
 
 set -Eeuo pipefail
 
-SCRIPT_VERSION="1.2.1"
+SCRIPT_VERSION="1.2.2"
 
 # ---------------------------------------------------------------------------
 # 下载源（可用环境变量覆盖）
@@ -34,17 +34,33 @@ SCRIPT_VERSION="1.2.1"
 # 升级时先取 VERSION 比较，再决定是否下载载荷，因此**推送新版本不会让老装机无法升级**
 # ——老脚本永远能把新版本拉下来（见 do_update / self_update）。
 # ---------------------------------------------------------------------------
-REPO_OWNER="${REPO_OWNER:-mycool007}"
+REPO_HOST="${REPO_HOST:-github}"
+REPO_OWNER="${REPO_OWNER:-wxin0414}"
 REPO_NAME="${REPO_NAME:-openvpn-oneclick}"
 REPO_BRANCH="${REPO_BRANCH:-main}"
 ASSET_PATH="${ASSET_PATH:-panel/ovpnmanager-panel.tar.gz}"
-# 注意用带扩展名的 VERSION.txt：实测 Gitee 的 raw 路径对**无扩展名**的文件会返回
-# 404（文件确实在仓库里，API 能看到），所以版本文件名必须带后缀。
+# 版本文件名必须带后缀：某些平台的 raw 路径对**无扩展名**的文件会返回 404
+#（文件确实在仓库里，API 能看到），Gitee 上实测如此。
 VERSION_PATH="${VERSION_PATH:-VERSION.txt}"
-GITEE_BASE="${GITEE_BASE:-https://gitee.com/${REPO_OWNER}/${REPO_NAME}/raw/${REPO_BRANCH}}"
-PANEL_TARBALL_URL="${PANEL_TARBALL_URL:-${GITEE_BASE}/${ASSET_PATH}}"
-REMOTE_VERSION_URL="${REMOTE_VERSION_URL:-${GITEE_BASE}/${VERSION_PATH}}"
-SELF_URL="${SELF_URL:-${GITEE_BASE}/install.sh}"
+
+# 下载源按托管平台推导，两个平台都支持，任选其一即可：
+#   github -> https://raw.githubusercontent.com/<owner>/<repo>/<branch>
+#   gitee  -> https://gitee.com/<owner>/<repo>/raw/<branch>
+# 想换成自建/对象存储时，直接覆盖 ASSET_BASE（或分别覆盖下面三个 URL）即可。
+ASSET_BASE="${ASSET_BASE:-${GITEE_BASE:-}}"
+if [ -z "$ASSET_BASE" ]; then
+  case "$REPO_HOST" in
+    github) ASSET_BASE="https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${REPO_BRANCH}" ;;
+    gitee)  ASSET_BASE="https://gitee.com/${REPO_OWNER}/${REPO_NAME}/raw/${REPO_BRANCH}" ;;
+    *)
+      printf 'REPO_HOST=%s 不支持（只支持 github 或 gitee）。\n也可以直接指定下载源：\n  ASSET_BASE=https://你的域名/ovpn bash install.sh --auto\n或分别指定 PANEL_TARBALL_URL / REMOTE_VERSION_URL / SELF_URL。\n' "$REPO_HOST" >&2
+      exit 2
+      ;;
+  esac
+fi
+PANEL_TARBALL_URL="${PANEL_TARBALL_URL:-${ASSET_BASE}/${ASSET_PATH}}"
+REMOTE_VERSION_URL="${REMOTE_VERSION_URL:-${ASSET_BASE}/${VERSION_PATH}}"
+SELF_URL="${SELF_URL:-${ASSET_BASE}/install.sh}"
 
 # 安装状态（记录已安装版本与关键路径，供 --update 使用）
 STATE_DIR="${STATE_DIR:-/etc/ovpn-oneclick}"
@@ -889,10 +905,11 @@ fetch_panel() {
     die "面板包下载失败：${PANEL_TARBALL_URL}
 
     常见原因：
-      1. 仓库是私有的 —— Gitee 对私有仓库的 /raw/ 路径一律返回 403，
-         连带上令牌也不行（只有 api/v5 的 contents 接口可用）；
-         另外 Gitee 会以「内容涉及代理」为由强制把 OpenVPN 类仓库设为私有。
-      2. 网络不通，或 REPO_OWNER / REPO_NAME / REPO_BRANCH 与实际不符。
+      1. 仓库是私有的 —— Gitee 对私有仓库的 /raw/ 路径一律返回 403，连带上令牌
+         也不行（只有 api/v5 的 contents 接口可用）；GitHub 的私有仓库同样取不到
+         匿名 raw。另外 Gitee 会以「内容涉及代理」为由强制把 OpenVPN 类仓库设为私有，
+         所以这类项目更适合放在 GitHub。
+      2. 网络不通，或 REPO_HOST / REPO_OWNER / REPO_NAME / REPO_BRANCH 与实际不符。
 
     三种可行做法（任选其一）：
       a) 把 install.sh 与面板包放到你自己的服务器/对象存储上，然后覆盖下载源：
@@ -1402,7 +1419,7 @@ remote_version() {
   v="$(curl -fsSL --max-time 20 "$REMOTE_VERSION_URL" 2>/dev/null | tr -d '[:space:]')" || v=""
   if [ -z "$v" ]; then
     # 回退一：无扩展名的 VERSION（老仓库布局 / 某些平台对无后缀路径返回 404）
-    v="$(curl -fsSL --max-time 20 "${GITEE_BASE}/VERSION" 2>/dev/null | tr -d '[:space:]')" || v=""
+    v="$(curl -fsSL --max-time 20 "${ASSET_BASE}/VERSION" 2>/dev/null | tr -d '[:space:]')" || v=""
   fi
   if [ -z "$v" ]; then
     # 回退二：直接从远端 install.sh 里读 SCRIPT_VERSION。
