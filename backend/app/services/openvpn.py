@@ -65,6 +65,18 @@ def service_details() -> dict[str, str]:
         )
     )
     details: dict[str, str] = {}
+    # 查询失败必须留下原因：_run 用的是 check=False，如果这里不显式判断，
+    # 任何失败（包装脚本不可执行、sudo 被沙箱拦住、unit 名不对……）都会变成
+    # 界面上一个毫无线索的 ``unknown``，排查成本极高（实测为此花了很多时间）。
+    if result.returncode != 0 or not (result.stdout or "").strip():
+        logger.warning(
+            "查询 OpenVPN 服务状态失败：cmd=%r returncode=%s stdout=%r stderr=%r",
+            " ".join(_systemctl("show", "-p", "LoadState", "-p", "ActiveState", "-p", "SubState",
+                                settings.openvpn_service_name)),
+            result.returncode,
+            (result.stdout or "").strip()[:200],
+            (result.stderr or "").strip()[:300],
+        )
     for line in (result.stdout or "").splitlines():
         key, _, value = line.partition("=")
         if key:

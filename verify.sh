@@ -160,7 +160,10 @@ fi
 # 访问日志里最近是否还有 307 / OPTIONS
 if command -v journalctl >/dev/null 2>&1; then
   recent="$(journalctl -u "$PANEL_SERVICE" --since '15 min ago' --no-pager 2>/dev/null || true)"
-  n307="$(printf '%s' "$recent" | grep -c ' 307 ' || true)"
+  # 排除本脚本自己在第 4 节故意发出的那个"不带斜杠"探测请求：
+  # 它必然产生一条 307，会把这里的判定污染成假阳性。前端已改为请求带斜杠的地址，
+  # 所以真实的用户流量不该再出现 `/api/servers`（无斜杠）这种形态。
+  n307="$(printf '%s' "$recent" | grep ' 307 ' | grep -vcE 'GET /api/servers HTTP' || true)"
   nopt="$(printf '%s' "$recent" | grep -c 'OPTIONS ' || true)"
   if [ "${n307:-0}" -eq 0 ]; then ok "最近 15 分钟访问日志无 307 重定向"; else bad "最近 15 分钟仍有 $n307 条 307"; fi
   if [ "${nopt:-0}" -eq 0 ]; then ok "最近 15 分钟访问日志无 OPTIONS 预检"; else bad "最近 15 分钟仍有 $nopt 条 OPTIONS"; fi
@@ -282,6 +285,25 @@ if [ -f "$SERVER_CONF" ] && grep -qF '# >>> ovpn-oneclick managed (do not edit b
 elif [ -f "$SERVER_CONF" ]; then
   info "server.conf 暂无托管块：面板首次保存时会自动插入（并先备份）"
 fi
+
+# 静态检查：面板服务的沙箱必须与"用 sudo 调助手"这一设计兼容。
+# 实测踩过的坑：unit 里加了 NoNewPrivileges=true 之后，shell 里手工 sudo 是通的，
+# 但**服务里**的 sudo 全部失败 —— 面板把运行中的服务报成 unknown，
+# 「服务端设置」保存也会失败。这类问题只有把服务的沙箱设置也纳入检查才拦得住。
+if systemctl show -p NoNewPrivileges --value "$PANEL_SERVICE" 2>/dev/null | grep -qi yes; then
+  bad "${PANEL_SERVICE} 设置了 NoNewPrivileges=yes：面板内的 sudo 必然失败（服务状态会误报 unknown、保存设置会失败）"
+else
+  ok "${PANEL_SERVICE} 未禁止提权（sudo 助手可用）"
+fi
+_ps="$(systemctl show -p ProtectSystem --value "$PANEL_SERVICE" 2>/dev/null || true)"
+case "$_ps" in
+  full|strict)
+    bad "${PANEL_SERVICE} 的 ProtectSystem=${_ps}：/etc 只读，root 助手将无法写入 server.conf/nginx/sudoers" ;;
+  yes|true|"")
+    ok "面板 ProtectSystem 允许写 /etc（=${_ps:-未设置}）" ;;
+  *)
+    info "面板 ProtectSystem=${_ps}（请确认 root 助手能写 /etc）" ;;
+esac
 
 # 实机冒烟：以面板用户身份无密码调用一次助手。
 # 本脚本号称"只读"，所以这里必须确认**不会真的应用什么**：

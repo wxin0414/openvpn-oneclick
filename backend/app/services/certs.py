@@ -151,6 +151,12 @@ def _publish_crl(crl_src: Path, crl_dst: Path) -> None:
     crl_dst.parent.mkdir(parents=True, exist_ok=True)
     if created_dir:
         crl_dst.parent.chmod(0o755)
+    # 源与目标可能是**同一个文件**：采纳既有安装（--adopt）时，crl-verify 指向的
+    # 往往就是 EasyRSA 自己的 pki/crl.pem。shutil.copy 在同一文件上会抛
+    # SameFileError，让"吊销证书"这个操作直接 500，所以必须先判断。
+    if crl_src.resolve() == crl_dst.resolve():
+        crl_dst.chmod(0o644)
+        return
     shutil.copy(crl_src, crl_dst)
     crl_dst.chmod(0o644)
 

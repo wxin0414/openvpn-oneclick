@@ -25,7 +25,7 @@
 
 set -Eeuo pipefail
 
-SCRIPT_VERSION="1.2.2"
+SCRIPT_VERSION="1.2.4"
 
 # ---------------------------------------------------------------------------
 # 下载源（可用环境变量覆盖）
@@ -133,11 +133,17 @@ if [ -t 1 ]; then
 else
   C_RESET=''; C_INFO=''; C_OK=''; C_WARN=''; C_ERR=''
 fi
-info()  { printf "${C_INFO}[*]${C_RESET} %s\n" "$*"; }
-ok()    { printf "${C_OK}[+]${C_RESET} %s\n" "$*"; }
+# 注意：info/ok/step 一律输出到 **stderr**。
+# 原因：脚本里有若干函数（fetch_panel、detect_public_ip、find_easyrsa 等）用 stdout
+# 返回字符串，调用方写 `x="$(f)"`。如果这些函数里的日志打进 stdout，就会和返回值
+# 混在一起被一起捕获——实测出现过 `tar -xzf "$asset"` 的"路径"里混进一整段日志、
+# 报 `Cannot open: No such file or directory` 的故障。
+# 把日志固定到 stderr 后，stdout 只承载"返回值"，这类问题从根上消失。
+info()  { printf "${C_INFO}[*]${C_RESET} %s\n" "$*" >&2; }
+ok()    { printf "${C_OK}[+]${C_RESET} %s\n" "$*" >&2; }
 warn()  { printf "${C_WARN}[!]${C_RESET} %s\n" "$*" >&2; }
 die()   { printf "${C_ERR}[x]${C_RESET} %s\n" "$*" >&2; exit 1; }
-step()  { printf "\n${C_INFO}==== %s ====${C_RESET}\n" "$*"; }
+step()  { printf "\n${C_INFO}==== %s ====${C_RESET}\n" "$*" >&2; }
 
 trap 'die "安装中断（第 ${LINENO} 行）"' ERR
 
@@ -373,8 +379,10 @@ init_pki() {
     warn "找不到用户 ${OVPN_USER}，server.conf 里的 user 指令可能需要手工调整"
   fi
 
+  # PKI 分步补齐：这样"上次装到一半失败"的机器重跑时能接上，而不是被
+  # "PKI 已存在"整段跳过、接着在下面 install 证书时报缺文件。
   if [ -d "${EASYRSA_DIR}/pki" ] && [ -f "${EASYRSA_DIR}/pki/ca.crt" ]; then
-    ok "PKI 已存在，跳过初始化（${EASYRSA_DIR}/pki）"
+    ok "PKI 已存在（${EASYRSA_DIR}/pki），跳过 CA 初始化"
   else
     local src; src="$(dirname "$(find_easyrsa)")"
     [ -d "$EASYRSA_DIR" ] && [ -n "$(ls -A "$EASYRSA_DIR" 2>/dev/null || true)" ] \
@@ -383,16 +391,30 @@ init_pki() {
     (
       cd "$EASYRSA_DIR" || die "无法进入 ${EASYRSA_DIR}"
       export EASYRSA_BATCH=1 EASYRSA_ALGO=rsa EASYRSA_KEY_SIZE=2048
-      export EASYRSA_REQ_CN="ovpn-oneclick-ca"
       ./easyrsa init-pki >/dev/null
       info "生成 CA（无口令）…"
-      ./easyrsa build-ca nopass >/dev/null
-      info "生成服务端证书…"
-      ./easyrsa build-server-full "$SERVER_CN" nopass >/dev/null
-      info "生成初始 CRL…"
-      ./easyrsa gen-crl >/dev/null
+      # EASYRSA_REQ_CN 只对 build-ca 有意义，**绝不能 export**：
+      # EasyRSA 3.1+（Debian 12 自带的正是 3.1.0）里 build-server-full /
+      # build-client-full 的 CN 取自名字参数，若环境里还留着外部 CN，会直接报
+      #   Option conflict: 'build-server-full' does not support setting an external commonName
+      # 3.0.x 容忍这种写法，所以这个坑只在较新的发行版上暴露。
+      EASYRSA_REQ_CN="ovpn-oneclick-ca" ./easyrsa build-ca nopass >/dev/null
     )
-    ok "PKI 初始化完成"
+    ok "CA 初始化完成"
+  fi
+
+  # 服务端证书与 CRL 独立判断：任一步缺失都补上（中断重跑不会卡住）
+  if [ ! -s "${EASYRSA_DIR}/pki/issued/${SERVER_CN}.crt" ] \
+     || [ ! -s "${EASYRSA_DIR}/pki/private/${SERVER_CN}.key" ]; then
+    info "生成服务端证书（${SERVER_CN}）…"
+    ( cd "$EASYRSA_DIR" || die "无法进入 ${EASYRSA_DIR}"
+      export EASYRSA_BATCH=1 EASYRSA_ALGO=rsa EASYRSA_KEY_SIZE=2048
+      ./easyrsa build-server-full "$SERVER_CN" nopass >/dev/null ) \
+      || die "生成服务端证书失败（EasyRSA 版本：$(easyrsa --version 2>/dev/null | head -1 || echo 未知)）"
+  fi
+  if [ ! -s "${EASYRSA_DIR}/pki/crl.pem" ]; then
+    info "生成初始 CRL…"
+    ( cd "$EASYRSA_DIR" && EASYRSA_BATCH=1 ./easyrsa gen-crl >/dev/null ) || die "生成 CRL 失败"
   fi
 
   # tls-crypt 密钥
@@ -408,16 +430,30 @@ init_pki() {
     openssl dhparam -dsaparam -out "${SERVER_DIR}/dh.pem" 2048 2>/dev/null
   fi
 
-  install -m 0644 "${EASYRSA_DIR}/pki/ca.crt"                   "${SERVER_DIR}/ca.crt"
-  install -m 0644 "${EASYRSA_DIR}/pki/issued/${SERVER_CN}.crt"  "${SERVER_DIR}/${SERVER_CN}.crt"
-  install -m 0600 "${EASYRSA_DIR}/pki/private/${SERVER_CN}.key" "${SERVER_DIR}/${SERVER_CN}.key"
+  place_file 0644 "${EASYRSA_DIR}/pki/ca.crt"                   "${SERVER_DIR}/ca.crt"
+  place_file 0644 "${EASYRSA_DIR}/pki/issued/${SERVER_CN}.crt"  "${SERVER_DIR}/${SERVER_CN}.crt"
+  place_file 0600 "${EASYRSA_DIR}/pki/private/${SERVER_CN}.key" "${SERVER_DIR}/${SERVER_CN}.key"
   refresh_crl
 }
 
-refresh_crl() {
-  if [ -f "${EASYRSA_DIR}/pki/crl.pem" ]; then
-    install -m 0644 "${EASYRSA_DIR}/pki/crl.pem" "$CRL_PATH"
+# 把文件放到目标位置；**源与目标相同时只修权限**。
+# GNU install 在 src == dst 时会以 "are the same file" 报错退出，而 --adopt 采纳
+# 既有安装时这很常见：CRL_PATH 会被对齐到对方实际使用的位置，而那个位置常常就是
+# EasyRSA 自己的 pki/crl.pem。实测这个错误会直接中断整个安装。
+place_file() { # place_file <权限> <源> <目标>
+  local mode="$1" src="$2" dst="$3"
+  if [ "$(readlink -f "$src" 2>/dev/null)" = "$(readlink -f "$dst" 2>/dev/null)" ]; then
+    chmod "$mode" "$dst" 2>/dev/null || true
+    return 0
   fi
+  install -m "$mode" "$src" "$dst"
+}
+
+refresh_crl() {
+  local src="${EASYRSA_DIR}/pki/crl.pem"
+  [ -f "$src" ] || return 0
+  # CRL 必须对 OpenVPN 降权后的 nobody 可读（0644），否则吊销不会生效
+  place_file 0644 "$src" "$CRL_PATH"
 }
 
 # ---------------------------------------------------------------------------
@@ -516,10 +552,18 @@ require_openvpn_for_ipv6() {
 write_server_conf() {
   step "写入 OpenVPN 服务端配置"
 
-  # --adopt：只在既有配置上补面板需要的指令，不重写别人的整份文件
+  # --adopt：只在**确实存在**既有配置时打补丁。不能无条件走这条路：
+  # 只有 PKI 而没有 server.conf 的机器（典型场景是上次安装中断留下的现场）
+  # 打补丁无处可打，会变成"什么都没写"然后服务必然起不来——而这里是写配置的
+  # 唯一入口，所以必须先判断文件在不在。
+  # 另外这里**不再用 `|| true` 吞掉失败**：往既有配置里注入面板指令失败时，
+  # 结果是一份不完整、起不来的配置，应当立刻报错而不是继续往下走。
   if [ "${ADOPTED:-0}" = "1" ]; then
-    inject_panel_directives || true
-    return 0
+    if [ -s "$SERVER_CONF" ]; then
+      inject_panel_directives
+      return 0
+    fi
+    warn "${SERVER_CONF} 不存在（只有 PKI），无法在既有配置上打补丁，改为写入一份新配置"
   fi
 
   if [ -f "$SERVER_CONF" ]; then
@@ -963,9 +1007,22 @@ deploy_panel() {
     info "创建 Python 虚拟环境…"
     python3 -m venv "${PANEL_HOME}/backend/.venv"
   fi
-  info "安装面板依赖（pip，可能较慢）…"
-  "${PANEL_HOME}/backend/.venv/bin/pip" install --upgrade pip -q
-  "${PANEL_HOME}/backend/.venv/bin/pip" install -r "${PANEL_HOME}/backend/requirements.txt" -q
+  # pip 源：默认走国内镜像，失败自动退回官方 PyPI。
+  # 原因：PyPI 的包实际托管在 files.pythonhosted.org，国内服务器上实测会
+  # ReadTimeout 直接把安装打断（apt 也是同类问题，已换镜像）。国内镜像快两个数量级。
+  # 非国内环境或想用自建源时覆盖即可：
+  #   PIP_INDEX_URL=https://pypi.org/simple/ bash install.sh --auto
+  local pip_bin="${PANEL_HOME}/backend/.venv/bin/pip"
+  local pip_index="${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple/}"
+  local pip_opts=(--timeout 60 --retries 5 --disable-pip-version-check)
+  info "安装面板依赖（pip，源：${pip_index}）…"
+  if ! "$pip_bin" install "${pip_opts[@]}" --index-url "$pip_index" --upgrade pip -q \
+     || ! "$pip_bin" install "${pip_opts[@]}" --index-url "$pip_index" \
+            -r "${PANEL_HOME}/backend/requirements.txt" -q; then
+    warn "使用 ${pip_index} 安装失败，改用官方 PyPI 重试…"
+    "$pip_bin" install "${pip_opts[@]}" --upgrade pip -q
+    "$pip_bin" install "${pip_opts[@]}" -r "${PANEL_HOME}/backend/requirements.txt" -q
+  fi
 
   # 前端静态文件
   mkdir -p "${WEB_ROOT}/${WEB_NAME}"
@@ -1273,6 +1330,11 @@ report_existing_install() {
   [ -n "$EXISTING_SERVER_CONF" ] && printf '    server.conf : %s\n' "$EXISTING_SERVER_CONF"
   [ -n "$EXISTING_PKI_DIR" ]     && printf '    PKI         : %s/pki\n' "$EXISTING_PKI_DIR"
   [ -n "$EXISTING_TLS_KEY" ]     && printf '    tls 密钥    : %s（%s）\n' "$EXISTING_TLS_KEY" "$EXISTING_TLS_MODE"
+  # 必须显式 return 0：这是纯信息输出函数，而它的最后一条语句是
+  # `[ -n ... ] && printf`。当该测试为假（没有 tls 密钥）时整条语句返回 1，
+  # 函数便返回 1；在 set -e 下调用点会被当成"命令失败"而中断整个安装。
+  # 结果就是"在有既有 OpenVPN 的机器上重跑"这条路（含 --adopt / --force）全部崩掉。
+  return 0
 }
 
 # 采纳既有布局：把本脚本的路径对齐到对方的实际位置，避免造出第二套 PKI
@@ -1343,8 +1405,25 @@ adopt_layout() {
 # 往既有 server.conf 里补上面板需要的指令，而不是整份替换。
 # 返回 0 表示补过，1 表示无需改动。
 inject_panel_directives() {
-  [ -f "$SERVER_CONF" ] || return 1
+  [ -f "$SERVER_CONF" ] || return 1        # 真正的错误：目标配置不存在
   local changed=0
+  local pattern
+
+  # 先判断到底缺不缺：不缺就直接返回成功，**不要留下无意义的备份**
+  # （早期版本无条件 cp -a 备份，于是每次 --adopt 都会多一个 .bak 文件）
+  local missing=0
+  for pattern in '^\s*management\s' '^\s*status\s' '^\s*status-version\s' \
+                 '^\s*client-config-dir\s' '^\s*crl-verify\s'; do
+    grep -qE "$pattern" "$SERVER_CONF" 2>/dev/null || missing=1
+  done
+  if [ "$missing" = "0" ]; then
+    info "既有 server.conf 已包含面板需要的全部指令，未改动"
+    # 注意这里必须返回 0："配置已经齐了"在安装视角下是**成功**。
+    # 早期版本返回 1，调用方又用 `|| true` 把失败吞掉；一旦去掉 || true
+    # （为了不掩盖真正的错误），这个返回值就会让 --adopt 整个中断。
+    return 0
+  fi
+
   add_if_missing() { # add_if_missing <匹配正则> <要追加的行>
     if ! grep -qE "$1" "$SERVER_CONF" 2>/dev/null; then
       printf '%s\n' "$2" >> "$SERVER_CONF"
@@ -1361,12 +1440,8 @@ inject_panel_directives() {
     [ -f "$CRL_PATH" ] || refresh_crl
     add_if_missing '^\s*crl-verify\s' "crl-verify ${CRL_PATH}"
   fi
-  if [ "$changed" = "1" ]; then
-    ok "已在既有 server.conf 中补上面板需要的指令（原文件已备份）"
-    return 0
-  fi
-  info "既有 server.conf 已包含面板需要的全部指令，未改动"
-  return 1
+  [ "$changed" = "1" ] && ok "已在既有 server.conf 中补上面板需要的指令（原文件已备份）"
+  return 0
 }
 
 # ---------------------------------------------------------------------------

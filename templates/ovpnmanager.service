@@ -18,21 +18,29 @@ RestartSec=3
 TimeoutStopSec=15
 
 # ---- 加固 ----
-NoNewPrivileges=true
+# 注意：**不要**在这里加 NoNewPrivileges=true 或 RestrictSUIDSGID=true。
+# 本面板的设计是"以非 root 运行 + 用 sudo 调用受控助手"：
+#   * systemctl 包装脚本（查状态 / 起停 OpenVPN）
+#   * apply-config（落地「服务端设置」页面改的配置）
+# 两者都依赖 sudo 的 setuid 提权。NoNewPrivileges=true 会让服务内的 sudo 永远失败，
+# 表现为面板把运行中的服务误报成 unknown、「服务端设置」保存直接失败。
+# 实测踩过这个坑：shell 里手工 sudo 通，服务里全挂。
 PrivateTmp=true
-ProtectSystem=full
+# ProtectSystem=yes 只把 /usr 挂成只读；**不能用 full/strict**，
+# 它们会连 /etc 一起挂只读，而 root 助手需要写 /etc/openvpn/server.conf、
+# /etc/sudoers.d 与 /etc/nginx —— sudo 之后的进程仍在同一挂载命名空间里，
+# 下面的 ReadWritePaths 救不了它（那些路径也会被设成只读+可写叠加，语义混乱）。
+ProtectSystem=yes
 ProtectHome=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
-RestrictSUIDSGID=true
 RestrictRealtime=true
 LockPersonality=true
 # 面板新建的文件默认私有（数据库、日志）。注意：必须由 OpenVPN 读取的
 # 文件（CRL、CCD）在代码里显式 chmod 0644，不受这里的 umask 影响。
 UMask=0077
-# ProtectSystem=full 会把 /etc 与 /var 挂成只读，这里显式放开面板必须写入的位置：
-# 证书体系（签发/吊销）、CCD 固定 IP、客户端导出、CRL、服务端配置与其备份、状态日志
+# 面板自身需要写入的位置（证书体系、CCD、客户端导出、状态日志等）
 ReadWritePaths=/etc/openvpn
 ReadWritePaths=/var/log/openvpn
 ReadWritePaths=__PANEL_HOME__/backend/data

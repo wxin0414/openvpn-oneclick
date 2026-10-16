@@ -129,7 +129,12 @@ size="$(stat -c '%s' "$CANDIDATE" 2>/dev/null || echo 0)"
 [ "$size" -gt 0 ] || fail "候选配置是空文件"
 [ "$size" -le 131072 ] || fail "候选配置过大（${size} 字节 > 128KB）"
 
-if grep -qU $'\x00' "$CANDIDATE" 2>/dev/null; then
+# NUL 字节检测。
+# **不要**写成 `grep -qU $'\x00' "$CANDIDATE"`：bash 的 $'\x00' 会被截断成空字符串
+#（bash 变量存不下 NUL），实际执行的是 `grep -qU '' 文件` —— 空模式匹配每一行，
+# 于是**任何**文件都被判成"含 NUL"，「服务端设置」的每一次保存都会被拒绝。
+# 实测踩过这个坑。改用 tr 只保留 NUL 字节再计数，不依赖 PCRE。
+if [ "$(tr -dc '\0' < "$CANDIDATE" | wc -c)" -ne 0 ]; then
   fail "候选配置包含 NUL 字节，拒绝处理"
 fi
 
