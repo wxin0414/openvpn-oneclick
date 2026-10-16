@@ -886,10 +886,24 @@ fetch_panel() {
   local dst="${WORK_DIR}/panel.tar.gz"
   info "下载 ${PANEL_TARBALL_URL}"
   if ! curl -fL --connect-timeout 15 --retry 2 -o "$dst" "$PANEL_TARBALL_URL" 2>/dev/null; then
-    die "面板包下载失败。请检查网络，或用以下方式手动放置：
-     wget ${PANEL_TARBALL_URL}
-     把下载到的文件放到本脚本同级目录：${SCRIPT_DIR}/${ASSET_PATH}
-     然后重新运行本脚本。"
+    die "面板包下载失败：${PANEL_TARBALL_URL}
+
+    常见原因：
+      1. 仓库是私有的 —— Gitee 对私有仓库的 /raw/ 路径一律返回 403，
+         连带上令牌也不行（只有 api/v5 的 contents 接口可用）；
+         另外 Gitee 会以「内容涉及代理」为由强制把 OpenVPN 类仓库设为私有。
+      2. 网络不通，或 REPO_OWNER / REPO_NAME / REPO_BRANCH 与实际不符。
+
+    三种可行做法（任选其一）：
+      a) 把 install.sh 与面板包放到你自己的服务器/对象存储上，然后覆盖下载源：
+           PANEL_TARBALL_URL=https://你的域名/ovpn/ovpnmanager-panel.tar.gz \\
+           REMOTE_VERSION_URL=https://你的域名/ovpn/VERSION.txt \\
+           SELF_URL=https://你的域名/ovpn/install.sh \\
+           bash install.sh --auto
+      b) 手动下载面板包，放到本脚本同级目录后重跑（无需联网取包）：
+           ${SCRIPT_DIR}/${ASSET_PATH}
+      c) 换一个允许公开托管此类内容的平台（GitHub / 自建 Gitea 等），
+         用 REPO_OWNER / REPO_NAME 覆盖即可。"
   fi
   tar -tzf "$dst" >/dev/null 2>&1 || die "面板包损坏（不是有效的 tar.gz）"
   printf '%s' "$dst"
