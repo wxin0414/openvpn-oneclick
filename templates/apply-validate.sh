@@ -61,6 +61,25 @@ unauthorized_extra() { # unauthorized_extra <当前配置> <候选配置>
   comm -13 <(nonmanaged_lines "$1") <(nonmanaged_lines "$2") || true
 }
 
+# 面板"退役"被自己接管的旧行时加的前缀（必须与
+# backend/app/services/server_conf.py 的 RETIRED_PREFIX 逐字一致）
+RETIRED_PREFIX="# [ovpn-oneclick retired] "
+
+# 该行是否被原样保留成了退役注释
+retired_as_comment() { # retired_as_comment <候选文件> <原行>
+  grep -qF -- "${RETIRED_PREFIX}${2}" "$1"
+}
+
+# 候选相对当前配置**移除**的指令行（注释不算指令）
+#
+# 为什么需要这个：单靠 unauthorized_extra（comm -13）只能发现"新增"，
+# 发现不了"偷偷删掉一行"——比如把 crl-verify 删掉就等于关掉了证书吊销，
+# 或者删掉 management 让面板自己的在线状态失效。面板只被允许把接管的旧行
+# 注释掉（退役），不允许让任何既有指令凭空消失。
+removed_lines() { # removed_lines <当前配置> <候选配置>
+  comm -23 <(nonmanaged_lines "$1") <(nonmanaged_lines "$2") || true
+}
+
 # 一次性校验托管块：指令名白名单 + push 内容白名单。
 # 不合法时把原因打印到 stdout 并返回非 0；合法则无输出、返回 0。
 validate_managed_block() { # validate_managed_block <配置文件>

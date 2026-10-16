@@ -318,7 +318,7 @@ http://<服务器地址>/ovpnmanager/settings
 
 `GET /api/settings/server` 返回 `path`、`exists`、`settings`（上表的可编辑项）、`readonly`（只读项）与 `managed_block_present`。
 
-一个需要说明的细节：**`sndbuf` / `rcvbuf` 面板只托管服务端的那两行标量**。`install.sh` 生成的托管块里原本还有 `push "sndbuf 393216"` / `push "rcvbuf 393216"` 两行（推给客户端的那份），面板渲染托管块时不会重新生成它们——因此**面板保存过一次之后，客户端侧不再收到这两条推送**，服务端的缓冲区设置不受影响。
+一个值得说明的细节：**`sndbuf` / `rcvbuf` 面板会同时渲染服务端标量与推给客户端的那两条**（`sndbuf 393216` 与 `push "sndbuf 393216"`）。只调服务端一侧的话客户端仍是小缓冲，而吞吐收益主要来自两端一起放大；早期版本这里漏了客户端那两条，保存一次之后就会静默退化。现在由下面这项检查守着，不会再退化。
 
 ### 页面里刻意只读的东西
 
@@ -354,8 +354,12 @@ http://<服务器地址>/ovpnmanager/settings
 1. **候选文件本身**：必须存在、是普通文件、非空、不超过 128KB、不含 NUL 字节；必须属于 `/etc/ovpn-oneclick/apply.conf` 里声明的面板用户，且**不能是组或其他用户可写**（否则本机任何用户都能投毒）。面板侧按 `0600` 写这份文件。
 2. **托管块白名单**：块内出现的指令名必须在白名单里（`port proto server topology mssfix sndbuf rcvbuf keepalive client-to-client max-clients duplicate-cn block-ipv6 push fast-io explicit-exit-notify`），`push` 的载荷还要逐个匹配允许的形态——`dhcp-option DNS <地址>`、`route <网段> [<掩码>]`、`redirect-gateway` 只允许字母数字 / `!` / 空格 / 连字符、`sndbuf` / `rcvbuf` 只允许一个整数、`ifconfig-ipv6 <地址/前缀> [<对端地址>]`。
 3. **托管块之外不得引入任何新指令**：助手用 `comm -13`（当前配置的非托管行 vs 候选的非托管行，注释与空行不计）要求结果为空。也就是说面板只能改托管块里的内容，**不可能**把 `script-security 2` + `up /tmp/x.sh`、`plugin`，或者把 `crl-verify` 悄悄改成 `/dev/null` 塞进候选——那等于把"一个被攻破的 Web 应用"直接升级成以 root 执行任意代码。这条规则也正是面板接管旧指令时**把它们注释掉**（`# [ovpn-oneclick retired] proto tcp`）而不删掉的原因：注释行助手跳过、OpenVPN 也忽略，既中和了旧值又不会触发"引入了新指令"。
+4. **反向：候选也不得删除既有指令**。只做第 3 条的话，"把 `crl-verify` 整行删掉"这种降级查不出来——删掉它就等于关掉了证书吊销。助手因此再做一次反向比较（`comm -23`），并要求每一个"消失"的行都能在候选里找到对应的**退役注释**（`# [ovpn-oneclick retired] <原行>`）。即：面板只能把接管的旧行注释掉，不能让任何既有指令凭空消失。
 
-同一套规则**在两边各写一份、各跑一遍**：面板侧先 `validate_candidate` 自检，助手侧独立复核，任何一边不通过都不落地。两边分别是 Python 与 Bash、常量是抄过去的，所以另有一项跨组件契约检查逐字比对标记文本、托管指令集合与 push 前缀：`python3 tests/check_apply_contract.py`。
+同一套规则**在两边各写一份、各跑一遍**：面板侧先 `validate_candidate` 自检，助手侧独立复核，任何一边不通过都不落地。两边分别是 Python 与 Bash、常量是抄过去的，所以另有两项检查专门守着这条缝：
+
+- `python3 tests/check_apply_contract.py` —— 逐字比对托管块标记、15 项托管指令集合、6 个 push 前缀与**退役前缀**；
+- `python3 tests/test_block_parity.py` —— 要求 **`install.sh` 写入托管块的每种指令形态，面板都能渲染**。面板每次保存都整块重写托管块，install.sh 放进去而面板不会渲染的指令会在第一次保存后**静默消失**；这个坑已经踩到两次（`ifconfig-ipv6`、推给客户端的 `sndbuf`/`rcvbuf`），所以用集合比对把它钉住。
 
 ### `server.conf` 的布局
 
@@ -520,7 +524,7 @@ openvpn-oneclick/
 - **受控的特权助手**：`/usr/local/lib/ovpnmanager/apply-config` + 校验函数库 + `/etc/ovpn-oneclick/apply.conf` + sudoers 里放行的一条**不接受任何参数**的命令，让非 root 的面板能在"只动托管块"的前提下落地配置，失败自动回滚。
 - **跨组件契约测试** `tests/check_apply_contract.py`：比对面板（Python）与助手（Bash）两边各写了一份的托管块标记、托管指令集合与 push 前缀，必须逐字一致；任一边改了另一边没改就报错——否则表现是"面板每次保存都被助手拒绝"。
 - **助手校验规则的单元测试** `tests/test_apply_config.sh`：把校验逻辑从 root 依赖里拆出来后逐条断言"助手会拒绝什么"，含三个恶意候选样例（托管块外的 `script-security` / `up`、把 `crl-verify` 改成 `/dev/null`）。
-- **`verify.sh` 新增第 10 节**：检查助手与它的配置是否存在、属主、权限、语法与 sudoers 授权，并以面板用户身份**无密码调用一次助手**做冒烟测试。刚装好时这次调用没有副作用——候选文件还不存在，助手应当拒绝并回报 `RESULT=failed`，恰好同时证明 sudo 白名单生效、助手可执行、且它不接受非法输入。注意：面板每次保存都会把候选文件留在面板数据目录里（`server.conf.candidate`），此时这一节会让助手**真的把那份候选落地**（备份并重启服务），所以请在刚装好、或确认没有遗留候选文件时运行。
+- **`verify.sh` 新增第 10 节**：检查助手与它的配置是否存在、属主、权限、语法与 sudoers 授权，并以面板用户身份**无密码调用一次助手**做冒烟测试——候选文件不存在时助手会拒绝并回报 `RESULT=failed`，恰好同时证明 sudo 白名单生效、助手可执行、且它不接受非法输入。助手在**成功应用后会删除候选**，所以正常情况下不会留下待应用的配置；万一存在（说明上次应用失败），第 10 节会检测到并**跳过这次调用**，只做静态检查——一个自检脚本不应该真的去改配置、重启服务。
 
 ## 验证状态与已知局限
 
@@ -545,7 +549,7 @@ openvpn-oneclick/
 
 1. 先在一台**可回滚**（快照 / 可重装）的测试机上跑一遍 `sudo bash install.sh --auto`；
 2. 用客户端连一次 VPN，确认能出网、能打开 `http://<服务器>/ovpnmanager/`；
-3. 跑一次 `sudo ./verify.sh` 逐条复验修复项（刚装好、还没有候选文件时跑，第 10 节的冒烟调用不会产生副作用）；
+3. 跑一次 `sudo ./verify.sh` 逐条复验修复项（第 10 节只在没有待应用候选时才真实调用助手，不会改动配置）；
 4. 登录面板，在「服务端设置」里改一个无害项（例如 `keepalive`）并保存，确认服务重启后仍是 `active`、`<server.conf>.bak.<时间戳>` 备份已生成、页面回显的设置与 `server.conf` 里托管块的内容一致；网段变更还要确认 NAT 与 nginx 放行网段同步更新；
 5. 再跑一次 `sudo bash install.sh --check-update` / `--update`，确认升级不会动 PKI、`server.conf`（含托管块）、`SECRET_KEY` 与管理员口令；
 6. 以上都通过后，才用于生产环境。

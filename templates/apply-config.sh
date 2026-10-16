@@ -147,11 +147,20 @@ if ! block_reason="$(validate_managed_block "$CANDIDATE")"; then
 fi
 
 # 2b) 关键：候选在托管块之外不得引入任何新指令
-extra="$(comm -13 <(nonmanaged_lines "$SERVER_CONF") <(nonmanaged_lines "$CANDIDATE") || true)"
+extra="$(unauthorized_extra "$SERVER_CONF" "$CANDIDATE")"
 if [ -n "$extra" ]; then
   log "候选引入了未授权指令：$extra"
   fail "候选配置在托管块之外引入了未授权的指令：$(printf '%s' "$extra" | tr '\n' ';')"
 fi
+
+# 2c) 反向：候选也不得**删除**既有指令，只能把它们注释成退役行。
+#     只做 2b 的话，"偷偷删掉 crl-verify 从而关掉证书吊销"这种降级查不出来。
+while IFS= read -r lost; do
+  [ -n "$lost" ] || continue
+  if ! retired_as_comment "$CANDIDATE" "$lost"; then
+    fail "候选移除了既有指令（只允许注释掉、不允许删除）：${lost}"
+  fi
+done < <(removed_lines "$SERVER_CONF" "$CANDIDATE")
 
 # ---------------------------------------------------------------------------
 # 3. 备份
@@ -290,4 +299,10 @@ if [ -n "${STATE_DIR:-}" ]; then
 fi
 
 log "应用成功（备份 ${BACKUP}）"
+
+# 候选是一次性请求：成功落地后删掉它。好处有两个：
+# ① 不会留下一份"下次谁调用就再应用一遍"的陈旧意图；
+# ② verify.sh 的实机冒烟（无候选时应被拒绝）才能保持无副作用。
+rm -f "$CANDIDATE" 2>/dev/null || true
+
 finish ok ""

@@ -123,6 +123,19 @@ def main() -> int:
     else:
         print("  一致")
 
+    # ---- 4) 退役前缀：面板注释掉旧行时加的标记，助手靠它区分"退役"与"删除" ----
+    # 助手现在会做反向检查（候选不得删除既有指令，只能注释成退役行）。
+    # 若两边的退役前缀不一致，面板的正常保存就会被助手判成"移除了既有指令"而全线失败。
+    b_retired = bash_assign("RETIRED_PREFIX", bash)
+    p_retired = py_literal(CONF_PY, "RETIRED_PREFIX")
+    print("\n退役前缀（注释旧行时用）")
+    print(f"  助手 : {b_retired!r}")
+    print(f"  面板 : {p_retired!r}")
+    if b_retired != p_retired:
+        problems.append("退役前缀不一致（panel 的正常保存会被助手判成『移除了既有指令』）")
+    else:
+        print("  一致")
+
     print()
     if problems:
         print(f"发现 {len(problems)} 个契约问题：")

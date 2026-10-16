@@ -170,6 +170,36 @@ EOF
 extra="$(unauthorized_extra "$TMP/cur.conf" "$TMP/evil3.conf")"
 check "恶意候选 3：偷偷把 crl-verify 改成 /dev/null 被检出" contains 'crl-verify /dev/null' "$extra"
 
+# 恶意候选 4：把 crl-verify 整行**删掉**（等于关掉证书吊销）。
+# 单向的 comm -13 只能发现"新增"，所以必须另有反向检查。
+cat > "$TMP/evil4.conf" <<EOF
+dev tun
+server 10.8.44.0 255.255.255.0
+user nobody
+log-append /var/log/openvpn/openvpn.log
+${MARK_BEGIN}
+port 1194
+${MARK_END}
+verb 3
+EOF
+lost="$(removed_lines "$TMP/cur.conf" "$TMP/evil4.conf")"
+check "恶意候选 4：删掉 crl-verify 被检出为『移除』" contains 'crl-verify /etc/openvpn/server/crl\.pem' "$lost"
+check "删除不会被误判为已退役" not retired_as_comment "$TMP/evil4.conf" 'crl-verify /etc/openvpn/server/crl.pem'
+
+# 合法做法：同一行被注释成退役行保留下来
+cat > "$TMP/retired.conf" <<EOF
+dev tun
+server 10.8.44.0 255.255.255.0
+user nobody
+log-append /var/log/openvpn/openvpn.log
+${RETIRED_PREFIX}crl-verify /etc/openvpn/server/crl.pem
+${MARK_BEGIN}
+port 1194
+${MARK_END}
+verb 3
+EOF
+check "注释退役的行被认可（不算删除）" retired_as_comment "$TMP/retired.conf" 'crl-verify /etc/openvpn/server/crl.pem'
+
 printf '\n\033[1;34m== 安装脚本生成的托管块必须能通过助手校验 ==\033[0m\n'
 # 把 install.sh 里那段 heredoc 的托管块抽出来、代入示例值，再交给助手的校验函数。
 # 这条能拦住一种致命组合：安装脚本往托管块里放了助手不认的指令

@@ -217,6 +217,13 @@ def render_managed_block(settings_dict: dict) -> list[str]:
         value = settings_dict.get(key)
         if value is not None and value != "":
             lines.append(f"{key} {int(value)}")
+    # 收发缓冲还必须**推给客户端**：只调服务端一侧的话客户端仍然是小缓冲，
+    # 吞吐收益主要来自两端一起放大。install.sh 写入的托管块里本来就有这两条 push，
+    # 面板若不输出，用户保存一次设置后客户端就再也拿不到缓冲调优（静默回退）。
+    for key in ("sndbuf", "rcvbuf"):
+        value = settings_dict.get(key)
+        if value is not None and value != "":
+            lines.append(_push(f"{key} {int(value)}"))
     if settings_dict.get("keepalive"):
         lines.append(f"keepalive {' '.join(str(settings_dict['keepalive']).split())}")
     if settings_dict.get("client_to_client"):

@@ -261,9 +261,10 @@ else
   bad "缺少校验库 /usr/local/lib/ovpnmanager/apply-validate.sh（助手会拒绝启动）"
 fi
 
+CAND=""
 if [ -f "$APPLY_CONF_" ]; then
   ok "助手配置存在：$APPLY_CONF_（$(stat -c '%U:%G %a' "$APPLY_CONF_" 2>/dev/null)）"
-  CAND="$(grep -E '^CANDIDATE=' "$APPLY_CONF_" | cut -d'"' -f2)"
+  CAND="$(grep -E '^CANDIDATE=' "$APPLY_CONF_" | cut -d'"' -f2 || true)"
   [ -n "$CAND" ] && printf '       候选配置路径：%s\n' "$CAND"
 else
   bad "缺少 $APPLY_CONF_"
@@ -282,13 +283,18 @@ elif [ -f "$SERVER_CONF" ]; then
   info "server.conf 暂无托管块：面板首次保存时会自动插入（并先备份）"
 fi
 
-# 实机冒烟（无副作用）：以面板用户身份无密码调用一次助手。
-# 此时候选文件通常不存在，助手应当**拒绝**并回报 RESULT=failed。
-# 这恰好同时证明了：sudo 白名单生效、助手可执行、且它不会接受非法输入。
-if [ -x "$APPLY_BIN" ] && [ -n "${run_user:-}" ] && [ "$run_user" != "root" ]; then
+# 实机冒烟：以面板用户身份无密码调用一次助手。
+# 本脚本号称"只读"，所以这里必须确认**不会真的应用什么**：
+# 助手会读取候选文件并落地，所以只有在候选不存在时调用才是无副作用的
+# ——此时它会直接以 RESULT=failed 拒绝，正好证明 sudo 白名单生效、助手可执行、
+# 且不接受非法输入。若存在候选（例如上次应用失败留下的），就只做静态检查并跳过调用。
+if [ -n "$CAND" ] && [ -f "$CAND" ]; then
+  info "存在待应用的候选配置（$CAND），跳过实机调用以免真的应用它并重启服务"
+  info "助手成功应用后会删除候选；它一直存在说明上次应用失败，可用 cat 查看内容"
+elif [ -x "$APPLY_BIN" ] && [ -n "${run_user:-}" ] && [ "$run_user" != "root" ]; then
   out="$(sudo -u "$run_user" sudo -n "$APPLY_BIN" 2>&1 || true)"
   if printf '%s' "$out" | grep -q 'RESULT='; then
-    ok "面板用户可无密码调用助手，并收到结构化结果"
+    ok "面板用户可无密码调用助手，并收到结构化结果（无候选时会被拒绝，无副作用）"
     printf '       %s\n' "$(printf '%s' "$out" | grep -E '^(RESULT|REASON)=' | tr '\n' ' ')"
   else
     bad "以面板用户调用助手没有拿到 RESULT（检查 sudoers 与助手路径）：$(printf '%s' "$out" | head -c 200)"
