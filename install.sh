@@ -25,7 +25,7 @@
 
 set -Eeuo pipefail
 
-SCRIPT_VERSION="1.1.0"
+SCRIPT_VERSION="1.2.0"
 
 # ---------------------------------------------------------------------------
 # 下载源（可用环境变量覆盖）
@@ -545,10 +545,14 @@ write_server_conf() {
     exit_notify="explicit-exit-notify 1"
   fi
 
+  # 配置分成两部分：
+  #   ① 固定部分——面板不碰（证书、management/status、ccd、crl、日志等）
+  #   ② 末尾的 ovpn-oneclick managed 块——面板「服务端设置」页面维护的内容，
+  #      由特权助手 apply-config 校验后落地，且只允许改这个块里的指令。
+  # 这样"面板能改配置"和"面板不能塞任意指令进 root 读的配置"能同时成立。
   cat > "$SERVER_CONF" <<EOF
 # ===== 由 ovpn-oneclick ${SCRIPT_VERSION} 生成 =====
-port ${VPN_PORT}
-proto ${VPN_PROTO}
+# 固定部分：面板不会修改下面这些行。
 dev tun
 
 ca ${SERVER_DIR}/ca.crt
@@ -561,18 +565,10 @@ data-ciphers AES-256-GCM:AES-128-GCM:CHACHA20-POLY1305
 data-ciphers-fallback AES-256-GCM
 auth SHA256
 
-server ${VPN_NETWORK} ${VPN_NETMASK}
-topology subnet
 ifconfig-pool-persist ${LOG_DIR}/ipp.txt
-
-${dns_lines}
-${push_routes}
-${ipv6_lines}
-keepalive 10 120
-client-to-client
+txqueuelen 1000
 persist-key
 persist-tun
-${exit_notify}
 
 # ---- 证书吊销 ----
 # 只要该文件内容变化（mtime/size 改变），OpenVPN 就会重新读取它，因此吊销后
@@ -589,20 +585,33 @@ status-version 3
 # ---- 固定 IP / 每客户端路由 ----
 client-config-dir ${CCD_DIR}
 
-# ---- 性能调优 ----
-sndbuf 393216
-rcvbuf 393216
-push "sndbuf 393216"
-push "rcvbuf 393216"
-mssfix 1420
-txqueuelen 1000
-${fast_io}
-
 user nobody
 group ${OVPN_GROUP}
 
 log-append ${LOG_DIR}/openvpn.log
 verb 3
+
+# >>> ovpn-oneclick managed (do not edit by hand) >>>
+# 以下设置可在面板的「服务端设置」页面里修改。
+# 面板只写这个块；助手 apply-config 会校验取值、备份、原子替换，
+# 并在服务起不来时自动回滚。请勿手工编辑这个块（会被面板覆盖）。
+port ${VPN_PORT}
+proto ${VPN_PROTO}
+server ${VPN_NETWORK} ${VPN_NETMASK}
+topology subnet
+${dns_lines}
+${push_routes}
+${ipv6_lines}
+sndbuf 393216
+rcvbuf 393216
+push "sndbuf 393216"
+push "rcvbuf 393216"
+mssfix 1420
+keepalive 10 120
+client-to-client
+${exit_notify}
+${fast_io}
+# <<< ovpn-oneclick managed <<<
 EOF
   chmod 0644 "$SERVER_CONF"
   ok "已写入 ${SERVER_CONF}（proto=${VPN_PROTO} port=${VPN_PORT} 网段=${VPN_NETWORK}/${VPN_CIDR}）"
@@ -980,6 +989,9 @@ deploy_panel() {
   chmod 0440 /etc/sudoers.d/ovpnmanager
   visudo -cf /etc/sudoers.d/ovpnmanager >/dev/null 2>&1 || { rm -f /etc/sudoers.d/ovpnmanager; die "sudoers 校验失败，已回滚"; }
 
+  # 「服务端设置」页面的落地通道：特权助手 + 它的配置 + 校验库
+  install_apply_helper
+
   # 归属与权限
   chown -R "${PANEL_USER}:${PANEL_USER}" "$PANEL_HOME"
   chmod 0600 "${PANEL_HOME}/backend/.env"
@@ -1102,6 +1114,8 @@ uninstall() {
   rm -f /etc/nginx/sites-enabled/ovpnmanager.conf
   rm -f /etc/sudoers.d/ovpnmanager /etc/logrotate.d/ovpnmanager
   rm -rf /usr/local/lib/ovpnmanager /usr/local/lib/ovpn-oneclick
+  # 设置助手的配置与状态（apply.conf / last-apply.conf / apply.log）
+  rm -rf "$STATE_DIR"
   rm -rf "$PANEL_HOME" "${WEB_ROOT}/${WEB_NAME}"
   rm -f /etc/sysctl.d/99-ovpn-oneclick.conf
 
@@ -1116,6 +1130,54 @@ uninstall() {
   systemctl daemon-reload
   nginx -t >/dev/null 2>&1 && systemctl reload nginx || true
   ok "卸载完成（软件包未删除，如需清理：${PKG} remove openvpn easy-rsa nginx）"
+}
+
+# ---------------------------------------------------------------------------
+# 特权助手：让面板（非 root）能落地「服务端设置」页面改的配置
+#
+# 面板不直接改 server.conf / NAT / nginx（那些都归 root），而是把候选配置写到
+# 自己的数据目录，再用 sudo 调 apply-config。sudoers 里只允许这一条命令、
+# 且不允许参数；助手自己校验候选只能动托管块，失败自动回滚。
+# 校验规则被拆到 apply-validate.sh，以便脱离 root 单独测试（见 tests/test_apply_config.sh）。
+# ---------------------------------------------------------------------------
+install_apply_helper() {
+  step "安装设置助手（apply-config）"
+
+  install -D -m 0755 "${TPL_DIR}/apply-config.sh" /usr/local/lib/ovpnmanager/apply-config
+  install -D -m 0644 "${TPL_DIR}/apply-validate.sh" /usr/local/lib/ovpnmanager/apply-validate.sh
+  chown root:root /usr/local/lib/ovpnmanager/apply-config /usr/local/lib/ovpnmanager/apply-validate.sh
+  chmod 0755 /usr/local/lib/ovpnmanager/apply-config
+  chmod 0644 /usr/local/lib/ovpnmanager/apply-validate.sh
+
+  # nginx 站点配置文件的位置与 deploy_panel 里后续渲染时用的保持一致
+  local nginx_conf="/etc/nginx/conf.d/ovpnmanager.conf"
+  [ -d /etc/nginx/sites-available ] && nginx_conf="/etc/nginx/sites-available/ovpnmanager.conf"
+
+  mkdir -p "$STATE_DIR"
+  render "${TPL_DIR}/apply.conf.template" "${STATE_DIR}/apply.conf" \
+    SERVER_CONF "$SERVER_CONF" \
+    OVPN_SERVICE "$OVPN_SERVICE" \
+    CANDIDATE "${PANEL_HOME}/backend/data/server.conf.candidate" \
+    PANEL_USER "$PANEL_USER" \
+    LOG_DIR "$LOG_DIR" \
+    NAT_SCRIPT "/usr/local/lib/ovpn-oneclick/nat.sh" \
+    NGINX_CONF "$nginx_conf" \
+    STATE_DIR "$STATE_DIR" \
+    WAIT_ACTIVE_SECONDS "20"
+  chown root:root "${STATE_DIR}/apply.conf"
+  chmod 0644 "${STATE_DIR}/apply.conf"
+
+  # 助手要能写 server.conf 所在目录（备份/原子替换）与 nginx、NAT 脚本——它以 root 运行，天然可以。
+  # 这里只做一次自检：助手必须存在且可被 bash 解析。
+  bash -n /usr/local/lib/ovpnmanager/apply-config \
+    || die "apply-config 语法校验失败（${TPL_DIR}/apply-config.sh 是否有误？）"
+  bash -n /usr/local/lib/ovpnmanager/apply-validate.sh \
+    || die "apply-validate.sh 语法校验失败"
+
+  # 面板需要能写候选文件：数据目录已归面板用户，这里确保一下
+  install -d -o "$PANEL_USER" -g "$PANEL_USER" -m 0750 "${PANEL_HOME}/backend/data" 2>/dev/null || true
+
+  ok "设置助手就绪：/usr/local/lib/ovpnmanager/apply-config（sudoers 已授权且不接受参数）"
 }
 
 # ---------------------------------------------------------------------------

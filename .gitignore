@@ -1,6 +1,9 @@
 # ============ 构建中间产物 ============
 # pack.sh 的临时构建目录（panel/*.tar.gz 是要提交的发布产物，不能忽略）
 .build/
+# 前端构建时用的临时 TMP（沙箱里 esbuild 需要可写的 TMP）
+.tmp-build/
+frontend/.tmp-build/
 
 # ============ Python / 后端 ============
 __pycache__/

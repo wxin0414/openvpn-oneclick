@@ -1,0 +1,31 @@
+# ovpn-oneclick 特权助手的配置（由 install.sh 生成，root 所有，0644）
+#
+# 面板以非 root 用户运行，它**不直接改** server.conf，而是把"想改成的样子"写到
+# CANDIDATE 指向的文件，再用 sudo 调用 apply-config（sudoers 里只允许这一条命令、
+# 且不允许任何参数）。助手以 root 身份校验并落地，失败自动回滚。
+
+# 要管理的服务端配置
+SERVER_CONF="__SERVER_CONF__"
+
+# systemd 服务名（openvpn-server@server 或 openvpn@server）
+OVPN_SERVICE="__OVPN_SERVICE__"
+
+# 面板写候选配置的位置（必须归面板用户所有，助手会校验属主）
+CANDIDATE="__CANDIDATE__"
+PANEL_USER="__PANEL_USER__"
+
+# 日志目录（用于校验状态文件与日志可写性，可留空）
+LOG_DIR="__LOG_DIR__"
+
+# NAT 规则脚本：网段变化时要一起改，否则改完网段客户端上不了网
+NAT_SCRIPT="__NAT_SCRIPT__"
+
+# nginx 站点配置：里面的 allow <网段>; 要与新网段保持一致，
+# 否则改完网段面板自己就被挡在外面
+NGINX_CONF="__NGINX_CONF__"
+
+# 状态目录（助手会在这里留一份最近一次 apply 的结果与备份路径，便于排查）
+STATE_DIR="__STATE_DIR__"
+
+# 重启后等待服务变为 active 的最长秒数
+WAIT_ACTIVE_SECONDS="__WAIT_ACTIVE_SECONDS__"

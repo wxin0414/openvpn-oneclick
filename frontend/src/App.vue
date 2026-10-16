@@ -18,6 +18,10 @@
           <el-icon><i class="ri-user-3-line"></i></el-icon>
           <span>客户端管理</span>
         </el-menu-item>
+        <el-menu-item index="/settings">
+          <el-icon><i class="ri-settings-3-line"></i></el-icon>
+          <span>服务端设置</span>
+        </el-menu-item>
         <!-- <el-menu-item index="/openvpn">
           <el-icon><i class="ri-shield-keyhole-line"></i></el-icon>
           <span>OpenVPN 控制</span>

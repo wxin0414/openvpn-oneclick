@@ -1075,6 +1075,464 @@ def main() -> int:
         shutil.rmtree(i_tmp, ignore_errors=True)
 
     # ------------------------------------------------------------------ #
+    print("\n=== J. server.conf 托管块：渲染 / 候选 / 校验 / 设置接口 ===")
+    # 这一节验证"所有设置都能在面板里改"的写入侧。面板以非 root 运行，
+    # **不直接改** server.conf，而是把完整候选配置写进自己的数据目录，
+    # 再由 root 助手（templates/apply-config.sh）校验后落地。因此这里断言的是：
+    #   1. 渲染出的托管块形态与助手白名单**逐字一致**（不一致 = 每次保存都失败）；
+    #   2. 已有配置被正确接管（旧行注释掉、无关行逐字节不动）；
+    #   3. 面板自己的安全自检能挡住 script-security / up / plugin 这类夹带；
+    #   4. 设置接口的校验与响应形状。
+    import unittest.mock as j_mock
+
+    from app.services import server_conf as j_conf
+    from app.services import server_conf_writer as j_writer
+
+    # ---- J1: 与 root 助手的契约（同一份配置，两边必须一字不差）----
+    j_helpers = pathlib.Path(__file__).resolve().parents[2] / "templates" / "apply-validate.sh"
+    j_helper_text = j_helpers.read_text(encoding="utf-8") if j_helpers.exists() else ""
+    j_managed_allow = tuple(
+        j_helper_text.split('MANAGED_ALLOW="', 1)[1].split('"', 1)[0].split()
+        if "MANAGED_ALLOW=\"" in j_helper_text
+        else []
+    )
+    j_push_allow = tuple(
+        j_helper_text.split('PUSH_ALLOW="', 1)[1].split('"', 1)[0].split()
+        if "PUSH_ALLOW=\"" in j_helper_text
+        else []
+    )
+    expect("J1 面板的托管指令集与 root 助手白名单逐字一致", tuple(j_writer.MANAGED_DIRECTIVES), j_managed_allow)
+    expect("J2 面板的 push 白名单与 root 助手白名单逐字一致", tuple(j_writer.PUSH_ALLOW), j_push_allow)
+    check(
+        "J3 托管块标记与助手脚本逐字一致",
+        j_conf.MANAGED_BEGIN in j_helper_text and j_conf.MANAGED_END in j_helper_text,
+        f"{j_conf.MANAGED_BEGIN!r} / {j_conf.MANAGED_END!r}",
+    )
+    check(
+        "J4 UDP 专用指令也由面板托管（否则改成 tcp 后会留下过期指令）",
+        {"fast-io", "explicit-exit-notify"} <= set(j_writer.MANAGED_DIRECTIVES),
+        str(j_writer.MANAGED_DIRECTIVES),
+    )
+
+    # ---- 渲染：UDP / TCP ----
+    j_udp = j_writer.render_managed_block({"port": 1194, "proto": "udp"})
+    check("J5 UDP 下渲染 fast-io", "fast-io" in j_udp, str(j_udp))
+    check("J6 UDP 下渲染 explicit-exit-notify 1", "explicit-exit-notify 1" in j_udp, str(j_udp))
+    j_tcp = j_writer.render_managed_block({"port": 1194, "proto": "tcp"})
+    check(
+        "J7 TCP 下不渲染任何 UDP 专用指令",
+        not any(line.startswith(("fast-io", "explicit-exit-notify")) for line in j_tcp),
+        str(j_tcp),
+    )
+    check("J8 TCP 下 proto 仍然是 tcp", "proto tcp" in j_tcp, str(j_tcp))
+
+    # ---- 渲染：block-ipv6 必须三行一起（否则双栈客户端的 IPv6 根本不进隧道）----
+    j_v6 = j_writer.render_managed_block({"block_ipv6": True})
+    j_v6_expected = [
+        'push "ifconfig-ipv6 fd15:53b6:dead::2/64 fd15:53b6:dead::1"',
+        'push "redirect-gateway ipv6"',
+        "block-ipv6",
+    ]
+    check(
+        "J9 block_ipv6=true 渲染出 ifconfig-ipv6/redirect-gateway ipv6/block-ipv6 三行",
+        all(line in j_v6 for line in j_v6_expected) and j_v6[-3:] == j_v6_expected,
+        str(j_v6),
+    )
+    check(
+        "J10 block_ipv6=false 时三行都不出现",
+        not any("ipv6" in line.lower() or line == "block-ipv6" for line in j_writer.render_managed_block({"block_ipv6": False})),
+        str(j_writer.render_managed_block({"block_ipv6": False})),
+    )
+    check("J11 三行顺序必须是两次 push 在前、block-ipv6 在最后", j_v6[-1] == "block-ipv6", str(j_v6))
+
+    # ---- 渲染：tunnel_mode / routes / DNS / 数值项 ----
+    j_full = j_writer.render_managed_block(
+        {"tunnel_mode": "full", "routes": ["192.168.1.0/24"], "dns_servers": ["8.8.8.8", "8.8.4.4"]}
+    )
+    check(
+        "J12 tunnel_mode=full 渲染 redirect-gateway def1 bypass-dhcp",
+        'push "redirect-gateway def1 bypass-dhcp"' in j_full,
+        str(j_full),
+    )
+    check("J13 full 模式下不再渲染 route（路由由 redirect-gateway 决定）", not any("route " in line for line in j_full), str(j_full))
+    j_split = j_writer.render_managed_block({"tunnel_mode": "split", "routes": ["192.168.1.0/24"]})
+    check(
+        "J14 tunnel_mode=split 渲染 push route <net> <mask>",
+        'push "route 192.168.1.0 255.255.255.0"' in j_split,
+        str(j_split),
+    )
+    j_numbers = j_writer.render_managed_block(
+        {
+            "proto": "udp",
+            "mssfix": 1420,
+            "sndbuf": 393216,
+            "rcvbuf": 393216,
+            "keepalive": "10 120",
+            "client_to_client": True,
+            "max_clients": 100,
+            "duplicate_cn": True,
+        }
+    )
+    check(
+        "J15 数值/布尔项渲染成 OpenVPN 指令名",
+        {"mssfix 1420", "sndbuf 393216", "rcvbuf 393216", "keepalive 10 120",
+         "client-to-client", "max-clients 100", "duplicate-cn"} <= set(j_numbers),
+        str(j_numbers),
+    )
+    expect("J16 DNS 每个地址一条 push", sum(1 for line in j_full if "dhcp-option DNS" in line), 2)
+    expect(
+        "J17 max_clients=null 时不渲染 max-clients",
+        sum(1 for line in j_writer.render_managed_block({"max_clients": None}) if line.startswith("max-clients")),
+        0,
+    )
+
+    # ---- build_candidate：已有托管块 -> 替换，不重复 ----
+    j_settings = {
+        "port": 443,
+        "proto": "udp",
+        "dns_servers": ["8.8.8.8"],
+        "tunnel_mode": "split",
+        "routes": ["10.10.0.0/16"],
+        "block_ipv6": False,
+        "mssfix": 1400,
+        "sndbuf": None,
+        "rcvbuf": None,
+        "keepalive": "10 120",
+        "client_to_client": True,
+        "max_clients": 50,
+        "duplicate_cn": False,
+        "network": "10.8.44.0",
+        "netmask": "255.255.255.0",
+        "topology": "subnet",
+    }
+    j_old = "\n".join(
+        [
+            "user nobody",
+            "log-append /var/log/openvpn/openvpn.log",
+            "verb 3",
+            j_conf.MANAGED_BEGIN,
+            "port 1194",
+            "proto udp",
+            'push "dhcp-option DNS 1.1.1.1"',
+            j_conf.MANAGED_END,
+            "crl-verify /etc/openvpn/server/crl.pem",
+            "management 127.0.0.1 7505",
+        ]
+    ) + "\n"
+    j_out = j_writer.build_candidate(j_old, j_settings)
+    expect("J18 已有托管块被替换（标记仍只有一对）", j_out.count(j_conf.MANAGED_BEGIN), 1)
+    expect("J19 结束标记同样只有一对", j_out.count(j_conf.MANAGED_END), 1)
+    check("J20 旧托管值不再直接出现（被新值取代）", "\nport 1194\n" not in j_out, j_out)
+    check("J21 新值写入托管块", "\nport 443\n" in j_out, j_out)
+    check(
+        "J22 块前块后的无关指令逐字节保留",
+        "user nobody" in j_out
+        and "log-append /var/log/openvpn/openvpn.log" in j_out
+        and "crl-verify /etc/openvpn/server/crl.pem" in j_out
+        and "management 127.0.0.1 7505" in j_out
+        and "verb 3" in j_out,
+        j_out,
+    )
+    check("J23 旧托管块的位置不再残留空标记", j_out.count("# >>>") == 1, j_out)
+    expect("J24 候选通过面板自检", j_writer.validate_candidate(j_out, current_text=j_old), [])
+
+    # ---- build_candidate：从别的项目迁移过来的、没有标记的配置 ----
+    j_adopted = "\n".join(
+        [
+            "# 由 hwdsl2/openvpn-install 生成",
+            "port 1194",
+            "proto tcp",
+            "dev tun",
+            "user nobody",
+            "topology subnet",
+            "server 10.8.44.0 255.255.255.0",
+            'push "dhcp-option DNS 1.1.1.1"',
+            'push "route 10.20.0.0 255.255.0.0"',
+            "fast-io",
+            "explicit-exit-notify 1",
+            "keepalive 10 60",
+            "client-to-client",
+            'push "block-outside-dns"',
+            "log-append /var/log/openvpn/openvpn.log",
+            "crl-verify /etc/openvpn/server/crl.pem",
+            "management 127.0.0.1 7505",
+            "ca /etc/openvpn/server/ca.crt",
+            "tls-crypt /etc/openvpn/server/ta.key",
+            "verb 3",
+        ]
+    ) + "\n"
+    j_adopted_out = j_writer.build_candidate(j_adopted, j_settings)
+    check(
+        "J25 旧 port/proto 被注释掉（托管块在末尾，标量后者胜出）",
+        j_adopted_out.count(f"{j_conf.RETIRED_PREFIX}port 1194") == 1
+        and j_adopted_out.count(f"{j_conf.RETIRED_PREFIX}proto tcp") == 1,
+        j_adopted_out,
+    )
+    check(
+        "J26 旧 push 被注释掉（push 会累加，不中和会让客户端收到两组 DNS/路由）",
+        j_adopted_out.count(f'{j_conf.RETIRED_PREFIX}push "dhcp-option DNS 1.1.1.1"') == 1
+        and j_adopted_out.count(f'{j_conf.RETIRED_PREFIX}push "route 10.20.0.0 255.255.0.0"') == 1,
+        j_adopted_out,
+    )
+    check(
+        "J27 旧的 UDP 专用指令被接管（改 tcp 后不能留下 fast-io）",
+        j_adopted_out.count(f"{j_conf.RETIRED_PREFIX}fast-io") == 1
+        and j_adopted_out.count(f"{j_conf.RETIRED_PREFIX}explicit-exit-notify 1") == 1,
+        j_adopted_out,
+    )
+    j_unrelated = (
+        "user nobody",
+        "log-append /var/log/openvpn/openvpn.log",
+        "crl-verify /etc/openvpn/server/crl.pem",
+        "management 127.0.0.1 7505",
+        "ca /etc/openvpn/server/ca.crt",
+        "tls-crypt /etc/openvpn/server/ta.key",
+        "verb 3",
+        "# 由 hwdsl2/openvpn-install 生成",
+    )
+    check(
+        "J28 无关指令（含注释）逐字保留",
+        all(line in j_adopted_out for line in j_unrelated),
+        j_adopted_out,
+    )
+    check(
+        "J29 同一份配置重复生成结果完全一致（幂等，不会越攒越多注释）",
+        j_writer.build_candidate(j_adopted_out, j_settings) == j_adopted_out,
+        "第二次生成与第一次不同",
+    )
+    check(
+        "J29b 运维自己写的 push 不被接管（面板没能力表达它，不能替用户删）",
+        j_adopted_out.count('push "block-outside-dns"') == 1
+        and f'{j_conf.RETIRED_PREFIX}push "block-outside-dns"' not in j_adopted_out,
+        j_adopted_out,
+    )
+    j_marker_line = f"  {j_conf.MANAGED_BEGIN}  "
+    expect(
+        "J30 成对标记被识别为存在托管块（面板写出的标记行没有前导空白）",
+        j_conf.managed_block_present(f"{j_conf.MANAGED_BEGIN}\nport 1194\n{j_conf.MANAGED_END}\n"),
+        True,
+    )
+    expect(
+        "J31 只有开始标记时不算存在托管块",
+        j_conf.managed_block_present(f"{j_conf.MANAGED_BEGIN}\nport 1194\n"),
+        False,
+    )
+    expect(
+        "J31b 带前后空白的标记行也能被面板识别（解析按 strip 判定）",
+        j_conf.managed_block_present(f"{j_marker_line}\nport 1194\n  {j_conf.MANAGED_END}  \n"),
+        True,
+    )
+    check(
+        "J32 迁移配置的候选不引入任何新指令（助手 comm -13 的同一判定）",
+        j_writer.candidate_introduces_new_directives(j_adopted_out, j_adopted) == [],
+        str(j_writer.candidate_introduces_new_directives(j_adopted_out, j_adopted)),
+    )
+
+    # ---- validate_candidate：正常候选通过 + 夹带被拒 ----
+    j_candidate = j_writer.build_candidate(j_adopted, j_settings)
+    expect("J33 正常候选通过自检", j_writer.validate_candidate(j_candidate, current_text=j_adopted), [])
+    for j_name, j_smuggle in (
+        ("script-security", "script-security 2"),
+        ("up", "up /tmp/evil.sh"),
+        ("plugin", "plugin /tmp/evil.so"),
+    ):
+        # 夹带在托管块**之外**：必须被"不得引入当前配置里没有的指令"这条挡住
+        j_bad = j_smuggle + "\n" + j_candidate
+        check(
+            f"J34 拒绝托管块之外的夹带：{j_name}",
+            any("不允许引入" in problem for problem in j_writer.validate_candidate(j_bad, current_text=j_adopted)),
+            str(j_writer.validate_candidate(j_bad, current_text=j_adopted))[:200],
+        )
+        # 夹带在托管块**之内**：必须被指令名白名单挡住
+        j_inner = j_candidate.replace(
+            j_conf.MANAGED_END, f"{j_smuggle}\n{j_conf.MANAGED_END}"
+        )
+        check(
+            f"J35 拒绝托管块之内的夹带：{j_name}",
+            any("未授权指令" in problem for problem in j_writer.validate_candidate(j_inner, current_text=j_adopted)),
+            str(j_writer.validate_candidate(j_inner, current_text=j_adopted))[:200],
+        )
+    check(
+        "J36 拒绝未授权的 push 形态",
+        any(
+            "push" in problem
+            for problem in j_writer.validate_candidate(
+                j_candidate.replace(j_conf.MANAGED_END, 'push "up no"\n' + j_conf.MANAGED_END),
+                current_text=j_adopted,
+            )
+        ),
+        "push up 应当被拒绝",
+    )
+    check(
+        "J37 缺少结束标记的候选被拒绝",
+        any("标记" in problem for problem in j_writer.validate_candidate(j_candidate.replace(j_conf.MANAGED_END, ""))),
+        "缺标记应当被拒绝",
+    )
+
+    # ---- 候选文件写入：原子 + 0600 ----
+    j_written = j_writer.write_candidate(j_writer.candidate_path(), j_candidate)
+    check("J38 candidate_path() 落在面板数据目录", j_written.parent == pathlib.Path(gsettings.sqlite_path).parent, str(j_written))
+    if os.name == "nt":
+        # Windows 不保留 Unix 权限位：改为断言"代码确实以 0600 调用了 chmod"，
+        # 与 I 节同一个理由（助手会拒绝组/其他可写的候选文件）
+        j_modes: list[int] = []
+        j_real_chmod = pathlib.Path.chmod
+
+        def _j_recording_chmod(self, mode, *a, **k):  # type: ignore[no-untyped-def]
+            j_modes.append(mode)
+            return j_real_chmod(self, mode, *a, **k)
+
+        with j_mock.patch.object(pathlib.Path, "chmod", _j_recording_chmod):
+            j_writer.write_candidate(j_written, j_candidate)
+        check("J39 候选文件显式 chmod 0600（助手拒绝组/其他可写）", 0o600 in j_modes, str(j_modes))
+    else:
+        expect("J39 候选文件权限 0600", oct(j_written.stat().st_mode)[-3:], "600")
+
+    # ---- 设置项校验 ----
+    j_current = {"netmask": "255.255.255.0", "network": "10.8.44.0"}
+    expect("J40 port=0 被拒", bool(j_conf.validate_editable({"port": 0}, current=j_current)), True)
+    expect("J41 port=70000 被拒", bool(j_conf.validate_editable({"port": 70000}, current=j_current)), True)
+    expect("J42 proto=sctp 被拒", bool(j_conf.validate_editable({"proto": "sctp"}, current=j_current)), True)
+    check(
+        "J43 拒绝原因里带字段名（前端可定位到具体输入框）",
+        any("port" in problem for problem in j_conf.validate_editable({"port": 0}, current=j_current))
+        and any("proto" in problem for problem in j_conf.validate_editable({"proto": "sctp"}, current=j_current)),
+        str(j_conf.validate_editable({"port": 0, "proto": "sctp"}, current=j_current)),
+    )
+    expect("J44 合法 port/proto 通过", j_conf.validate_editable({"port": 1194, "proto": "tcp"}, current=j_current), [])
+    expect(
+        "J45 未知键被拒（只读项也走这条）",
+        bool(j_conf.validate_editable({"tls_mode": "tls-auth"}, current=j_current)),
+        True,
+    )
+    expect("J46 非法 CIDR 被拒", bool(j_conf.validate_editable({"routes": ["10.0.0.0/33"]}, current=j_current)), True)
+    expect(
+        "J47 network 带主机位被拒（否则会静默改成网段地址）",
+        bool(j_conf.validate_editable({"network": "10.8.44.7"}, current=j_current)),
+        True,
+    )
+    expect(
+        "J48 三个 DNS 地址被拒（最多 2 个）",
+        bool(j_conf.validate_editable({"dns_servers": ["1.1.1.1", "8.8.8.8", "9.9.9.9"]}, current=j_current)),
+        True,
+    )
+    expect("J49 topology=bridge 被拒", bool(j_conf.validate_editable({"topology": "bridge"}, current=j_current)), True)
+
+    # ---- 设置接口（/api/settings/*）----
+    # 助手不在本机（Windows/开发机），因此把 subprocess.run 换成桩，
+    # 只验证"校验 -> 候选 -> 解析助手输出 -> 响应形状"这一段。
+    j_conf_path = pathlib.Path(gsettings.server_conf_path)
+    j_conf_path.write_text(
+        "port 1194\n"
+        "proto udp\n"
+        "dev tun\n"
+        "user nobody\n"
+        "server 10.9.0.0 255.255.0.0\n"
+        "topology subnet\n"
+        'push "dhcp-option DNS 1.1.1.1"\n'
+        "verb 3\n",
+        encoding="utf-8",
+    )
+    j_conf.invalidate()
+
+    j_helper_stdout = "\n".join(
+        [
+            "APPLYING",
+            "RESULT=ok",
+            "BACKUP=/etc/openvpn/server/server.conf.bak.20261016-120000",
+            "RESTARTED=yes",
+            "ROLLED_BACK=no",
+            "NETWORK_CHANGED=no",
+            "REASON=",
+        ]
+    )
+
+    class _JHelperResult:
+        stdout = j_helper_stdout
+        stderr = ""
+        returncode = 0
+
+    with j_mock.patch("app.api.api_v1.endpoints.settings.subprocess.run", return_value=_JHelperResult()):
+        j_get = client.get("/api/settings/server", headers=headers)
+        expect("J50 GET /api/settings/server 返回 200", j_get.status_code, 200)
+        j_body = j_get.json()
+        check(
+            "J51 GET 返回 settings/readonly/managed_block_present 三个块",
+            {"path", "exists", "settings", "readonly", "managed_block_present"} <= set(j_body),
+            str(sorted(j_body)),
+        )
+        expect("J52 GET 读到当前端口", j_body["settings"]["port"], 1194)
+        expect("J53 GET 读到 server 网段（只给网络地址）", j_body["settings"]["network"], "10.9.0.0")
+        expect("J54 GET 的 netmask 来自 server 指令", j_body["settings"]["netmask"], "255.255.0.0")
+        expect("J55 GET 读到 push 的 DNS", j_body["settings"]["dns_servers"], ["1.1.1.1"])
+        check(
+            "J56 GET 的只读块包含 management/tls-crypt 等",
+            j_body["readonly"]["management"] is None
+            and j_body["readonly"]["tls_mode"] is None
+            and "cipher" in j_body["readonly"],
+            str(j_body["readonly"]),
+        )
+        expect("J57 尚未写入托管块时如实报告 false", j_body["managed_block_present"], False)
+
+        j_unknown = client.patch("/api/settings/server", headers=headers, json={"nope": 1})
+        expect("J58 PATCH 未知键返回 400", j_unknown.status_code, 400)
+        j_zero = client.patch("/api/settings/server", headers=headers, json={"port": 0})
+        expect("J59 PATCH port=0 返回 400", j_zero.status_code, 400)
+        j_sctp = client.patch("/api/settings/server", headers=headers, json={"proto": "sctp"})
+        expect("J60 PATCH proto=sctp 返回 400", j_sctp.status_code, 400)
+
+        j_patch = client.patch(
+            "/api/settings/server",
+            headers=headers,
+            json={"port": 443, "proto": "tcp", "dns_servers": ["8.8.8.8"], "tunnel_mode": "split",
+                  "routes": ["192.168.1.0/24"], "block_ipv6": False, "mssfix": 1420,
+                  "keepalive": "10 120", "max_clients": None},
+        )
+        expect("J61 PATCH 合法请求返回 200", j_patch.status_code, 200)
+        j_patch_body = j_patch.json()
+        check(
+            "J62 PATCH 响应形状与前端约定一致",
+            set(j_patch_body)
+            == {"ok", "changed", "restart_required", "restarted", "clients_affected", "backup",
+                "network_changed", "message"},
+            str(sorted(j_patch_body)),
+        )
+        check(
+            "J63 PATCH 只报告真正变化的键",
+            set(j_patch_body["changed"]) == {"port", "proto", "dns_servers", "routes", "mssfix", "keepalive"},
+            str(j_patch_body["changed"]),
+        )
+        expect("J64 端口/协议变化要求重启", j_patch_body["restart_required"], True)
+        expect("J65 端口/协议/DNS 变化会影响已发出的客户端配置", j_patch_body["clients_affected"], True)
+        expect("J66 备份路径来自助手输出", j_patch_body["backup"], "/etc/openvpn/server/server.conf.bak.20261016-120000")
+        expect("J67 已重启由助手输出决定", j_patch_body["restarted"], True)
+        check(
+            "J68 message 提示重新导出客户端",
+            "重新导出" in j_patch_body["message"],
+            j_patch_body["message"],
+        )
+        j_cand_text = j_writer.candidate_path().read_text(encoding="utf-8")
+        check("J69 候选文件里托管块已更新到 443/tcp", "\nport 443\n" in j_cand_text and "\nproto tcp\n" in j_cand_text, j_cand_text)
+        check(
+            "J70 候选文件里旧值被注释掉（助手整文件替换后不会有两个 port）",
+            j_cand_text.count(f"{j_conf.RETIRED_PREFIX}port 1194") == 1,
+            j_cand_text,
+        )
+        expect("J71 候选文件通过面板自检", j_writer.validate_candidate(j_cand_text, current_text=j_conf_path.read_text(encoding="utf-8")), [])
+
+        j_noop = client.patch("/api/settings/server", headers=headers, json={"port": 1194})
+        expect("J72 无变化时不调用助手、直接返回 200", j_noop.status_code, 200)
+        expect("J73 无变化时 changed 为空", j_noop.json()["changed"], [])
+
+        j_reexport = client.post("/api/settings/reexport-all", headers=headers)
+        expect("J74 POST /api/settings/reexport-all 返回 200", j_reexport.status_code, 200)
+        check(
+            "J75 重新导出响应形状与前端约定一致",
+            set(j_reexport.json()) == {"ok", "exported", "failed"},
+            str(j_reexport.json()),
+        )
+
+    # ------------------------------------------------------------------ #
     print("\n" + "=" * 66)
     print(f"通过 {len(PASSED)} 项，失败 {len(FAILED)} 项")
     if FAILED:

@@ -10,3 +10,9 @@ __PANEL_USER__ ALL=(root) NOPASSWD: __SYSTEMCTL__ restart __OVPN_SERVICE__
 __PANEL_USER__ ALL=(root) NOPASSWD: __SYSTEMCTL__ is-active __OVPN_SERVICE__
 __PANEL_USER__ ALL=(root) NOPASSWD: __SYSTEMCTL__ status --no-pager --full __OVPN_SERVICE__
 __PANEL_USER__ ALL=(root) NOPASSWD: __SYSTEMCTL__ show -p * __OVPN_SERVICE__
+
+# 面板的「服务端设置」页面靠这条把配置落地。
+# 故意**不允许任何参数**：候选文件路径、服务名等全部取自 root 所有的
+# /etc/ovpn-oneclick/apply.conf，调用者影响不了；助手内部还会校验候选
+# 只动了它托管的那个块。详见 templates/apply-config.sh。
+__PANEL_USER__ ALL=(root) NOPASSWD: /usr/local/lib/ovpnmanager/apply-config

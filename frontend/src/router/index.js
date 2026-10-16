@@ -6,12 +6,14 @@ import ClientsView from "../views/ClientsView.vue";
 import LogsView from "../views/LogsView.vue";
 import LoginView from "../views/LoginView.vue";
 import OpenVPNControlView from "../views/OpenVPNControlView.vue";
+import SettingsView from "../views/SettingsView.vue";
 
 const routes = [
   { path: "/login", name: "login", component: LoginView },
   { path: "/", name: "dashboard", component: DashboardView },
   { path: "/servers", name: "servers", component: ServersView },
   { path: "/clients", name: "clients", component: ClientsView },
+  { path: "/settings", name: "settings", component: SettingsView },
   { path: "/logs", name: "logs", component: LogsView },
   { path: "/openvpn", name: "openvpn", component: OpenVPNControlView },
 ];

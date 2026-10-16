@@ -6,15 +6,25 @@
 # 刻意不去触发登录失败，避免把管理员账号打进限速锁定。
 #
 # 用法：
-#   sudo ./deploy/verify.sh
-#   PANEL_PORT=8000 PANEL_HOME=/opt/ovpnmanager ./deploy/verify.sh
+#   sudo ./verify.sh
+#   PANEL_PORT=8000 PANEL_HOME=/opt/ovpnmanager sudo ./verify.sh
 set -uo pipefail
+
+# 安装时记录的关键路径（服务名、server.conf 路径、面板目录与端口）以状态文件为准，
+# 避免这里再硬编码一份、与实际部署不一致。
+STATE_FILE="${STATE_FILE:-/etc/ovpn-oneclick/state.conf}"
+if [ -f "$STATE_FILE" ]; then
+  # shellcheck disable=SC1090
+  . "$STATE_FILE"
+fi
 
 PANEL_HOME="${PANEL_HOME:-/opt/ovpnmanager}"
 PANEL_PORT="${PANEL_PORT:-8000}"
 ENV_FILE="${ENV_FILE:-${PANEL_HOME}/backend/.env}"
 OVPN_SERVICE="${OVPN_SERVICE:-openvpn@server}"
+SERVER_CONF="${SERVER_CONF:-/etc/openvpn/server.conf}"
 PANEL_SERVICE="${PANEL_SERVICE:-ovpnmanager}"
+WEB_NAME="${WEB_NAME:-ovpnmanager}"
 BASE="http://127.0.0.1:${PANEL_PORT}"
 WEB="http://127.0.0.1"
 
@@ -165,10 +175,10 @@ if grep -q 'REVOKE_RESTARTS_SERVICE=true' "$ENV_FILE" 2>/dev/null; then
 else
   ok "REVOKE_RESTARTS_SERVICE 未开启（吊销只重读 CRL 并单独踢该客户端）"
 fi
-if grep -q 'crl-verify' /etc/openvpn/server.conf 2>/dev/null; then
-  ok "server.conf 配置了 crl-verify"
+if grep -q 'crl-verify' "$SERVER_CONF" 2>/dev/null; then
+  ok "server.conf 配置了 crl-verify（$SERVER_CONF）"
 else
-  info "未在 /etc/openvpn/server.conf 找到 crl-verify"
+  info "未在 $SERVER_CONF 找到 crl-verify"
 fi
 
 # --------------------------------------------------------------------------- #
@@ -183,7 +193,7 @@ fi
 secret="$(env_get SECRET_KEY)"
 case "$secret" in
   qa111-wsx-111-edc-rfv-111|change-me-in-prod|"")
-    bad "SECRET_KEY 仍是公开默认值，请执行 deploy/rotate-secret.sh 轮换" ;;
+    bad "SECRET_KEY 仍是公开默认值：请在 ${ENV_FILE} 里换成一个随机值（openssl rand -hex 32）后重启 ${PANEL_SERVICE}（注意会使已签发的登录令牌失效）" ;;
   *) ok "SECRET_KEY 不是公开默认值" ;;
 esac
 
@@ -216,7 +226,7 @@ fi
 
 # --------------------------------------------------------------------------- #
 head_ "9. 修复(10)：隧道配置"
-conf=/etc/openvpn/server.conf
+conf="$SERVER_CONF"
 if [ -f "$conf" ]; then
   proto="$(grep -E '^proto ' "$conf" | awk '{print $2}' | head -1)"
   if [ "$proto" = "udp" ]; then
@@ -229,6 +239,62 @@ if [ -f "$conf" ]; then
   grep -qE '^data-ciphers' "$conf" && ok "已配置 data-ciphers 协商列表" || info "未配置 data-ciphers"
 else
   info "未找到 $conf"
+fi
+
+# --------------------------------------------------------------------------- #
+head_ "10. 服务端设置：面板改配置的落地通道"
+APPLY_BIN="/usr/local/lib/ovpnmanager/apply-config"
+APPLY_CONF_="/etc/ovpn-oneclick/apply.conf"
+
+if [ -x "$APPLY_BIN" ]; then
+  ok "特权助手已安装：$APPLY_BIN"
+  check "助手属主为 root:root" "root:root" "$(stat -c '%U:%G' "$APPLY_BIN" 2>/dev/null || echo '?')"
+  check "助手权限为 755" "755" "$(stat -c '%a' "$APPLY_BIN" 2>/dev/null || echo '?')"
+  if bash -n "$APPLY_BIN" 2>/dev/null; then ok "助手语法可解析"; else bad "助手语法有误"; fi
+else
+  bad "未安装 $APPLY_BIN：面板「服务端设置」页面将无法保存"
+fi
+
+if [ -x /usr/local/lib/ovpnmanager/apply-validate.sh ] || [ -f /usr/local/lib/ovpnmanager/apply-validate.sh ]; then
+  ok "校验库已安装：apply-validate.sh"
+else
+  bad "缺少校验库 /usr/local/lib/ovpnmanager/apply-validate.sh（助手会拒绝启动）"
+fi
+
+if [ -f "$APPLY_CONF_" ]; then
+  ok "助手配置存在：$APPLY_CONF_（$(stat -c '%U:%G %a' "$APPLY_CONF_" 2>/dev/null)）"
+  CAND="$(grep -E '^CANDIDATE=' "$APPLY_CONF_" | cut -d'"' -f2)"
+  [ -n "$CAND" ] && printf '       候选配置路径：%s\n' "$CAND"
+else
+  bad "缺少 $APPLY_CONF_"
+fi
+
+if grep -q 'ovpnmanager/apply-config' /etc/sudoers.d/ovpnmanager 2>/dev/null; then
+  ok "sudoers 已授权 apply-config（且不允许参数）"
+else
+  bad "sudoers 未授权 apply-config，面板保存会被拒"
+fi
+
+# server.conf 里的托管块（面板可改的区间）
+if [ -f "$SERVER_CONF" ] && grep -qF '# >>> ovpn-oneclick managed (do not edit by hand) >>>' "$SERVER_CONF"; then
+  ok "server.conf 含托管块（面板只改这个区间）"
+elif [ -f "$SERVER_CONF" ]; then
+  info "server.conf 暂无托管块：面板首次保存时会自动插入（并先备份）"
+fi
+
+# 实机冒烟（无副作用）：以面板用户身份无密码调用一次助手。
+# 此时候选文件通常不存在，助手应当**拒绝**并回报 RESULT=failed。
+# 这恰好同时证明了：sudo 白名单生效、助手可执行、且它不会接受非法输入。
+if [ -x "$APPLY_BIN" ] && [ -n "${run_user:-}" ] && [ "$run_user" != "root" ]; then
+  out="$(sudo -u "$run_user" sudo -n "$APPLY_BIN" 2>&1 || true)"
+  if printf '%s' "$out" | grep -q 'RESULT='; then
+    ok "面板用户可无密码调用助手，并收到结构化结果"
+    printf '       %s\n' "$(printf '%s' "$out" | grep -E '^(RESULT|REASON)=' | tr '\n' ' ')"
+  else
+    bad "以面板用户调用助手没有拿到 RESULT（检查 sudoers 与助手路径）：$(printf '%s' "$out" | head -c 200)"
+  fi
+else
+  info "无法执行冒烟测试（助手未安装或面板以 root 运行）"
 fi
 
 # --------------------------------------------------------------------------- #

@@ -17,7 +17,7 @@
 | 外部依赖 | 无第三方代码仓库依赖，仅需系统软件包源与出网能力 |
 | 许可 | MIT |
 
-> **诚实说明：本脚本至今没有在真实 Linux 服务器上完整跑过一遍端到端流程**——开发环境里没有 Linux 主机，也没有 Docker 与 WSL 可用。因此发行版包名、EasyRSA 路径发现、systemd 单元选择、防火墙分支、面板的 pip / nginx 部署等环节，**只经过语法检查、单元测试与模板契约测试**，未经实机验证。请先在**可回滚**的测试机上验证，确认无误后再用于生产环境。
+> **诚实说明：本脚本至今没有在真实 Linux 服务器上完整跑过一遍端到端流程**——开发环境里没有 Linux 主机，也没有 Docker 与 WSL 可用。因此发行版包名、EasyRSA 路径发现、systemd 单元选择、防火墙分支、面板的 pip / nginx 部署，以及 v1.2.0「服务端设置」的「面板 → sudo → 特权助手」落地通道等环节，**只经过语法检查、单元测试与模板契约测试**，未经实机验证。请先在**可回滚**的测试机上验证，确认无误后再用于生产环境。
 
 ## 目录
 
@@ -31,9 +31,11 @@
 - [升级](#升级)
 - [IPv6 泄漏防护](#ipv6-泄漏防护)
 - [管理面板](#管理面板)
+- [服务端设置（在面板里改）](#服务端设置在面板里改)
 - [目录与文件位置](#目录与文件位置)
 - [项目结构](#项目结构)
 - [本次修复](#本次修复)
+- [v1.2.0 新增](#v120-新增)
 - [验证状态与已知局限](#验证状态与已知局限)
 - [安装后须知](#安装后须知)
 - [故障排查](#故障排查)
@@ -210,7 +212,7 @@ sudo bash install.sh --auto
 升级的保证是这件事的重点：
 
 - **绝不重新生成 `SECRET_KEY`**，也**绝不重置管理员口令**——`.env` 已存在时原样保留；
-- **绝不动 PKI，也绝不动 `server.conf`**：升级路径不初始化证书体系、不重写服务端配置，既有的 tls 密钥与 PKI 一律沿用；若机器上已有 OpenVPN，升级同样会先探测并对齐既有布局（路径、网段、协议、端口）；
+- **绝不动 PKI，也绝不动 `server.conf`**：升级路径不初始化证书体系、不重写服务端配置，既有的 tls 密钥与 PKI 一律沿用；若机器上已有 OpenVPN，升级同样会先探测并对齐既有布局（路径、网段、协议、端口）；`server.conf` 里那段面板托管的块（`# >>> ovpn-oneclick managed` … `# <<< ovpn-oneclick managed <<<`）因此也一个字符都不会变——`--update` 只替换面板代码与模板（含特权助手），你在面板里改过的服务端设置原样保留；
 - **绝不覆盖你改过的 `.env` 值**：新版本模板里新增、而现有 `.env` 没有的键会被**追加**到文件末尾（沿用模板默认值，并标注由 `--update` 补充），既有键一个都不碰；
 - 升级前把数据库与 `.env` 打包备份到 `/var/backups/ovpn-oneclick/panel-<时间戳>.tar.gz`（只含 `backend/.env` 与 `backend/data`，可重建的 `.venv` 不备份），状态文件另存为 `panel-<时间戳>.state.conf`；备份目录里只保留最新 5 份 `.tar.gz`；
 - **安装脚本会自我更新，但先下载再校验**：下载到临时文件后先确认首行像 bash 脚本，再用 `bash -n` 做语法校验；校验通过才备份原脚本、写入 `install.sh.new` 并以 `mv` **原子替换**。任何一步失败都放弃自更新，且不影响面板升级。以 `curl | bash` 这类非磁盘文件方式执行时会跳过自更新；
@@ -265,6 +267,7 @@ http://<服务器地址>/ovpnmanager/
 | 强制下线 | 断开指定客户端 |
 | 固定 IP 与路由 | 按客户端配置（CCD） |
 | 服务控制 | 启动 / 停止 / 重启 OpenVPN 服务 |
+| 服务端设置 | 在面板里改 `server.conf` 的托管块：端口、协议、DNS、路由、IPv6 屏蔽、性能参数、客户端开关、网段（见下一节） |
 | 审计日志 | 记录登录、上下线、强制断开等事件，支持条件筛选与分页 |
 | 仪表盘 | 概览视图 |
 | 用户与口令 | Token 认证、登录限速、自助修改口令 |
@@ -272,6 +275,135 @@ http://<服务器地址>/ovpnmanager/
 证书签发、吊销等操作以**后台任务**方式执行，前端轮询进度，因此一次耗时的 EasyRSA 运行不会把浏览器请求拖到超时。
 
 **技术栈**：后端 FastAPI + SQLAlchemy + Pydantic v2 + SQLite；前端 Vue 3 + Vite + Element Plus + Axios。面板整体时间为 Asia/Shanghai，当地时间格式化仅在前端呈现。
+
+## 服务端设置（在面板里改）
+
+v1.2.0 起，改服务端参数**不再需要重跑 `install.sh` 带标志**。面板多了一个 **服务端设置** 页面：
+
+```text
+http://<服务器地址>/ovpnmanager/settings
+```
+
+它编辑的是 `server.conf` 里的**托管块**（布局见下文），点「保存并应用」后由 root 特权助手校验并落地。相关接口是 `GET` / `PATCH /api/settings/server` 与 `POST /api/settings/reexport-all`，三者都要求超级管理员。
+
+### 能改什么
+
+| 页面分组 | 项目 | 写入的指令 |
+| --- | --- | --- |
+| 基本 | 监听端口（1-65535） | `port` |
+| 基本 | 协议 `udp` / `tcp` | `proto`（UDP 时附带生成 `fast-io` 与 `explicit-exit-notify 1`；改成 TCP 时这两条不再生成） |
+| 隧道与路由 | 全局代理 / 分流 | 全局：`push "redirect-gateway def1 bypass-dhcp"`；分流：按列表逐条 `push "route <网段> <掩码>"` |
+| 隧道与路由 | 分流路由 | 同上（只在分流模式生效） |
+| 隧道与路由 | 屏蔽 IPv6 | 三行：两条 `push` + 服务端 `block-ipv6`（原因见下文） |
+| DNS | 推送 DNS（最多 2 个，IPv4 / IPv6 均可） | `push "dhcp-option DNS <地址>"` |
+| 性能 | `mssfix` | `mssfix` |
+| 性能 | `sndbuf` / `rcvbuf` | `sndbuf` / `rcvbuf`（服务端标量） |
+| 性能 | `keepalive` | `keepalive <间隔> <超时>`，形如 `10 120` |
+| 客户端 | 客户端互访 | `client-to-client` |
+| 客户端 | 最大连接数 | `max-clients`（关闭开关则不下发这条） |
+| 客户端 | 允许同名 CN | `duplicate-cn`（建议保持关闭） |
+| 网段 | VPN 网段 / 子网掩码 / `topology` | `server <网段> <掩码>` 与 `topology`（`subnet` / `net30` / `p2p`） |
+
+接口侧的校验才是准的（不通过时返回 400，并给出具体的中文原因）：
+
+- `port` 必须是 1-65535 的整数；`proto` 只能是 `udp` / `tcp`（不开放 `udp6` / `tcp6`）；
+- `dns_servers` 最多 2 个，且必须是合法 IPv4 / IPv6 地址；
+- `tunnel_mode` 只能是 `full` / `split`；`full` 模式下提交的 `routes` 会被忽略，并在返回文案里说明；
+- `routes` 必须是合法 CIDR；
+- `mssfix` 为 0-1500；`sndbuf` / `rcvbuf` / `max_clients` 为 0-10485760 的整数或 `null`；
+- `keepalive` 必须形如 `"10 120"`（两个整数）或 `null`；
+- `network` 必须是网段地址（写了主机位会被明确拒绝，例如 `10.9.0.7` + `255.255.0.0` 会报错，而不是被悄悄规范化成 `10.9.0.0`）；掩码必须是连续掩码且前缀长度 `>= 8`；`network` 与 `netmask` 必须匹配；
+- `topology` 只能是 `subnet` / `net30` / `p2p`；
+- **未提交的项沿用当前值**——`PATCH` 只带发生变化的字段，所以不会把没出现在表单里的项"改没了"；提交只读项或任何未知键一律 400。
+
+`GET /api/settings/server` 返回 `path`、`exists`、`settings`（上表的可编辑项）、`readonly`（只读项）与 `managed_block_present`。
+
+一个需要说明的细节：**`sndbuf` / `rcvbuf` 面板只托管服务端的那两行标量**。`install.sh` 生成的托管块里原本还有 `push "sndbuf 393216"` / `push "rcvbuf 393216"` 两行（推给客户端的那份），面板渲染托管块时不会重新生成它们——因此**面板保存过一次之后，客户端侧不再收到这两条推送**，服务端的缓冲区设置不受影响。
+
+### 页面里刻意只读的东西
+
+页面底部把这几项列出来仅供查看，不提供编辑：
+
+| 只读项 | 为什么不动它 |
+| --- | --- |
+| `management` / `status-version` | 面板自己靠它们读在线列表与状态，改错等于把面板的眼睛摘掉 |
+| `crl-verify` | 吊销是否生效全靠它指向的文件，改错等于被吊销的证书又能连上 |
+| `client-config-dir` | 固定 IP 与按客户端路由的 CCD 目录 |
+| tls 模式（`tls-crypt` / `tls-auth`） | 与服务端密钥以及既有客户端绑定 |
+| `cipher` / `data-ciphers` / `auth` | 改错会让服务端与既有客户端握手不上；无 AES-NI 机器的回退逻辑也在安装脚本里 |
+
+这些由安装脚本写入、面板按运行时实际情况展示。提交其中任何一项都会被 400 拒绝。
+
+### 改端口 / 协议 / 网段会发生什么
+
+- **端口或协议**：已签发的每一份客户端 `.ovpn` 都带着旧的 `remote` 端口与协议，改完**全部失效**。页面在你点保存时会先弹一次确认（写明这一点）；保存后的结果卡片会标出「客户端配置受影响」，并给出 **重新导出全部客户端** 按钮。该按钮调 `POST /api/settings/reexport-all`，把未吊销、未禁用的客户端一次性重新导出（同步执行，只读 PKI 与 `ta.key`，不跑 easyrsa / openssl），逐个客户端捕获异常并回报成功 / 失败清单；导出的文件仍需你重新分发。
+- **VPN 网段 / 掩码**：助手会先删掉旧网段的 MASQUERADE 规则、按新网段重建 NAT 脚本，再把 nginx 站点配置里的第一条 `allow <网段>;` 改成新网段并 `nginx -t` 校验，然后重启 OpenVPN 服务。已有客户端的固定 IP 可能需要同步调整（页面在该分组下也写了同样的警告）。
+- 助手在成功路径的最后**一定会重启一次 OpenVPN 服务**并轮询 `is-active`（默认最多等 20 秒）；起不来就整体回滚。也就是说每次保存都会让在线客户端短暂断开一次。
+
+### 安全模型：面板不写系统文件
+
+面板以**非 root 用户**运行，而 `server.conf`、NAT 脚本、nginx 站点配置都归 root。面板**从不直接编辑这些文件**，流程是：
+
+1. 面板把"想改成的样子"渲染成一份**完整候选配置**，写进自己的数据目录（`/opt/ovpnmanager/backend/data/server.conf.candidate`，权限 `0600`）；
+2. 面板执行 `sudo -n /usr/local/lib/ovpnmanager/apply-config`——**不带任何参数**。sudoers 里只放行这一条命令，助手自己也检查"参数个数必须为 0"，因此调用者无法指定要改哪个文件；路径全部来自 root 所有的 `/etc/ovpn-oneclick/apply.conf`；
+3. 助手以 root 复核候选，备份、原子替换、按需重建 NAT / nginx、重启并等待就绪，失败整体回滚；
+4. 面板解析助手 stdout 的 `RESULT=` / `BACKUP=` / `RESTARTED=` / `ROLLED_BACK=` / `NETWORK_CHANGED=` / `REASON=` 再回报页面。助手在默认 90 秒内没有返回时，面板**不会**说"没生效"，而是明确告诉你无法确认配置是否已落地、请查看助手日志与 `systemctl status` 后再重试。
+
+助手执行的三条校验是这件事敢上线的全部理由：
+
+1. **候选文件本身**：必须存在、是普通文件、非空、不超过 128KB、不含 NUL 字节；必须属于 `/etc/ovpn-oneclick/apply.conf` 里声明的面板用户，且**不能是组或其他用户可写**（否则本机任何用户都能投毒）。面板侧按 `0600` 写这份文件。
+2. **托管块白名单**：块内出现的指令名必须在白名单里（`port proto server topology mssfix sndbuf rcvbuf keepalive client-to-client max-clients duplicate-cn block-ipv6 push fast-io explicit-exit-notify`），`push` 的载荷还要逐个匹配允许的形态——`dhcp-option DNS <地址>`、`route <网段> [<掩码>]`、`redirect-gateway` 只允许字母数字 / `!` / 空格 / 连字符、`sndbuf` / `rcvbuf` 只允许一个整数、`ifconfig-ipv6 <地址/前缀> [<对端地址>]`。
+3. **托管块之外不得引入任何新指令**：助手用 `comm -13`（当前配置的非托管行 vs 候选的非托管行，注释与空行不计）要求结果为空。也就是说面板只能改托管块里的内容，**不可能**把 `script-security 2` + `up /tmp/x.sh`、`plugin`，或者把 `crl-verify` 悄悄改成 `/dev/null` 塞进候选——那等于把"一个被攻破的 Web 应用"直接升级成以 root 执行任意代码。这条规则也正是面板接管旧指令时**把它们注释掉**（`# [ovpn-oneclick retired] proto tcp`）而不删掉的原因：注释行助手跳过、OpenVPN 也忽略，既中和了旧值又不会触发"引入了新指令"。
+
+同一套规则**在两边各写一份、各跑一遍**：面板侧先 `validate_candidate` 自检，助手侧独立复核，任何一边不通过都不落地。两边分别是 Python 与 Bash、常量是抄过去的，所以另有一项跨组件契约检查逐字比对标记文本、托管指令集合与 push 前缀：`python3 tests/check_apply_contract.py`。
+
+### `server.conf` 的布局
+
+`server.conf` 被分成"固定部分"与"托管块"两半：
+
+```text
+# ===== 由 ovpn-oneclick 1.2.0 生成 =====
+# 固定部分：面板不会修改下面这些行。
+dev tun
+ca ... / cert ... / key ... / dh ...
+tls-crypt /etc/openvpn/server/ta.key
+data-ciphers ... / auth SHA256
+management 127.0.0.1 7505
+status ... / status-version 3
+client-config-dir ...
+crl-verify ...
+user nobody
+
+# >>> ovpn-oneclick managed (do not edit by hand) >>>
+# 以下设置可在面板的「服务端设置」页面里修改。
+port 1194
+proto udp
+server 10.8.44.0 255.255.255.0
+topology subnet
+push "dhcp-option DNS 8.8.8.8"
+sndbuf 393216 / rcvbuf 393216
+mssfix 1420
+keepalive 10 120
+client-to-client
+# <<< ovpn-oneclick managed <<<
+```
+
+- 面板**只写**两个标记之间的内容，块外一个字符都不动（上面第 3 条校验保证它做不到）。
+- **手工编辑托管块里的行没有意义**：每次保存都会按表单内容整段重新生成，你的改动会被覆盖。
+- 若 `server.conf` 不是本安装器创建的（`--adopt` 采纳的、或从别的项目迁移来的），它没有这个块。**第一次保存**时面板会插入托管块，并把与之冲突的既有指令注释成 `# [ovpn-oneclick retired] …`（旧 `port` / `proto` / `server` 以及被托管的 `push` 行），其它不属于面板托管的行（例如别人手写的 `push "block-outside-dns"`）原样保留；助手在替换前先备份 `server.conf`。对这类配置页面会先给出警告——「该 server.conf 不是由本安装器创建…保存时会插入受管块，并注释掉与之冲突的现有指令，使面板的配置生效；保存前会先生成 `.bak` 备份」，提醒你确认改动符合预期。
+- 备份文件名是 `<server.conf>.bak.<时间戳>`；助手成功时也会把它回报到页面「最近一次保存结果」的「备份文件」一栏。
+
+### `--block-ipv6` 为什么要写三行
+
+安装脚本的 `--block-ipv6` 与面板的「屏蔽 IPv6」写的是同样三行，缺一不可：
+
+```text
+push "ifconfig-ipv6 fd15:53b6:dead::2/64 fd15:53b6:dead::1"
+push "redirect-gateway ipv6"
+block-ipv6
+```
+
+只写服务端那一行 `block-ipv6` **挡不住双栈客户端**：它的 IPv6 默认路由还在自己网卡上，IPv6 流量根本不进隧道，服务端的 `block-ipv6` 自然看不到这些包，也就无从用 ICMPv6 `no-route` 回掉它们。必须先用前两条把客户端的 IPv6 流量拉进隧道（第一条给的是一份不会被真实网络使用的 ULA 地址），服务端的黑洞才有意义。它**只是屏蔽 IPv6，并不提供 IPv6**；`block-ipv6` 是 OpenVPN 2.4+ 的选项，旧版本不要开。
 
 ## 目录与文件位置
 
@@ -287,6 +419,11 @@ http://<服务器地址>/ovpnmanager/
 | tls-crypt 密钥 | `/etc/openvpn/server/ta.key`（采纳既有安装时沿用对方的名字，例如 `tc.key`） |
 | 客户端 `.ovpn` 输出目录 | `/etc/openvpn/server/client/` |
 | 安装状态（已安装版本与关键路径） | `/etc/ovpn-oneclick/state.conf` |
+| 特权助手（root 侧，校验并落地服务端设置） | `/usr/local/lib/ovpnmanager/apply-config`（root:root `0755`，同目录还有校验函数库 `apply-validate.sh`） |
+| 特权助手的配置（`SERVER_CONF`、服务名、候选文件路径等） | `/etc/ovpn-oneclick/apply.conf`（root:root `0644`，由 `install.sh` 生成） |
+| 面板写出的候选配置 | `/opt/ovpnmanager/backend/data/server.conf.candidate`（`0600`，属面板用户） |
+| 助手的日志与最近一次结果 | `/etc/ovpn-oneclick/apply.log`、`/etc/ovpn-oneclick/last-apply.conf` |
+| `server.conf` 的备份 | `<server.conf>.bak.<时间戳>`（助手每次落地前生成） |
 | 升级前的备份 | `/var/backups/ovpn-oneclick/`（`panel-<时间戳>.tar.gz` 与 `panel-<时间戳>.state.conf`，只保留最新 5 份） |
 
 ## 项目结构
@@ -294,12 +431,19 @@ http://<服务器地址>/ovpnmanager/
 ```text
 openvpn-oneclick/
 ├── install.sh          # 唯一的一键安装入口（OpenVPN 服务端 + 面板）
-├── verify.sh           # 部署后逐条复验修复项
+├── verify.sh           # 部署后逐条复验修复项（第 10 节冒烟测试面板改配置的落地通道）
 ├── README.md           # 本说明文件
 ├── VERSION.txt         # 版本号，供 --check-update 读取
 ├── pack.sh             # 由 backend/ + frontend/ 生成 panel/*.tar.gz
 ├── templates/          # nginx / systemd / env / sudoers / logrotate 模板
+│   ├── nginx.conf / ovpnmanager.service / env.template / sudoers / logrotate
+│   ├── apply-config.sh       # 特权助手（root 侧）：校验、备份、原子替换、NAT/nginx 重建、回滚
+│   ├── apply-validate.sh     # 助手的校验函数库（纯函数，可脱离 root 单独测试）
+│   └── apply.conf.template   # 助手配置模板 → /etc/ovpn-oneclick/apply.conf
 ├── tests/              # 安装脚本的契约与功能测试
+│   ├── check_env_contract.py / check_templates.py / check_payload.sh / test_functions.sh
+│   ├── check_apply_contract.py  # 面板（Python）↔ 助手（Bash）的跨组件契约比对
+│   └── test_apply_config.sh     # 助手校验规则的单元测试（不需要 root）
 ├── backend/            # 面板后端源码（FastAPI）
 ├── frontend/           # 面板前端源码（Vue 3）+ 构建产物 frontend/ovpnmanager/
 └── panel/ovpnmanager-panel.tar.gz   # 安装载荷：curl|bash 安装时下载它
@@ -310,10 +454,10 @@ openvpn-oneclick/
 > - 面板源码就是本仓库的 **`backend/` + `frontend/`**，不再有第二个仓库。
 > - `panel/ovpnmanager-panel.tar.gz` 是**构建产物**，由 `./pack.sh` 从 `backend/`、`frontend/ovpnmanager/` 与 `templates/` 打包生成；安装脚本下载并部署的正是这个 tarball。
 > - 因此**改完面板源码后必须执行 `./pack.sh` 并把重新生成的 tarball 一起提交**，否则安装脚本仍然发的是旧面板。打包前若前端有改动，请先在 `frontend/` 下执行 `npm ci && npm run build`，因为 `pack.sh` 只接受已存在的构建产物 `frontend/ovpnmanager/index.html`。
-> - `verify.sh` 用于**部署后**的逐条复验（只读，不改配置、不重启服务、不吊销证书）：`sudo ./verify.sh`。
+> - `verify.sh` 用于**部署后**的逐条复验：`sudo ./verify.sh`。除了第 10 节会真实调用一次特权助手（见「v1.2.0 新增」里的说明），其余检查均为只读——不改配置、不重启服务、不吊销证书。
 > - 面板的回归测试是 `backend/tests/test_fixes.py`（140 项断言，不依赖 pytest，需要 `httpx`，用后端虚拟环境跑：`backend/.venv/bin/python backend/tests/test_fixes.py`）。
 > - `backend/tests/objective_matrix.py` 把每一条已修复的问题追溯到可执行的断言与源码证据，退出码非 0 表示有目标缺乏证据。
-> - `tests/` 下是**安装脚本自身**的契约与功能测试：`check_env_contract.py`、`check_templates.py`、`check_payload.sh`、`test_functions.sh`。
+> - `tests/` 下是**安装脚本自身**的契约与功能测试：`check_env_contract.py`、`check_templates.py`、`check_payload.sh`、`test_functions.sh`，以及 v1.2.0 新增的 `check_apply_contract.py`（面板与助手的常量逐字比对）与 `test_apply_config.sh`（助手校验规则的单元测试，不需要 root）。
 
 ## 本次修复
 
@@ -370,6 +514,14 @@ openvpn-oneclick/
 - **`SECRET_KEY` 与管理员口令随机生成**：原仓库把 `SECRET_KEY=qa111-wsx-111-edc-rfv-111` 写在 `.env-example` 里，等于公开签名密钥；现在由安装脚本随机生成并只打印一次。
 - **登录限速**（默认 5 分钟内 8 次失败即锁定 5 分钟），并提供自助修改口令接口；启动时自检会把仍在使用的默认值打进日志，`/api/health/diagnostics` 可查询。
 
+## v1.2.0 新增
+
+- **服务端设置页面**：在面板里改 `server.conf` 的托管块（端口、协议、DNS、路由、IPv6 屏蔽、性能参数、客户端开关、网段），不必再重跑安装脚本带标志。详见「服务端设置（在面板里改）」一节。
+- **受控的特权助手**：`/usr/local/lib/ovpnmanager/apply-config` + 校验函数库 + `/etc/ovpn-oneclick/apply.conf` + sudoers 里放行的一条**不接受任何参数**的命令，让非 root 的面板能在"只动托管块"的前提下落地配置，失败自动回滚。
+- **跨组件契约测试** `tests/check_apply_contract.py`：比对面板（Python）与助手（Bash）两边各写了一份的托管块标记、托管指令集合与 push 前缀，必须逐字一致；任一边改了另一边没改就报错——否则表现是"面板每次保存都被助手拒绝"。
+- **助手校验规则的单元测试** `tests/test_apply_config.sh`：把校验逻辑从 root 依赖里拆出来后逐条断言"助手会拒绝什么"，含三个恶意候选样例（托管块外的 `script-security` / `up`、把 `crl-verify` 改成 `/dev/null`）。
+- **`verify.sh` 新增第 10 节**：检查助手与它的配置是否存在、属主、权限、语法与 sudoers 授权，并以面板用户身份**无密码调用一次助手**做冒烟测试。刚装好时这次调用没有副作用——候选文件还不存在，助手应当拒绝并回报 `RESULT=failed`，恰好同时证明 sudo 白名单生效、助手可执行、且它不接受非法输入。注意：面板每次保存都会把候选文件留在面板数据目录里（`server.conf.candidate`），此时这一节会让助手**真的把那份候选落地**（备份并重启服务），所以请在刚装好、或确认没有遗留候选文件时运行。
+
 ## 验证状态与已知局限
 
 这一节是刻意保留的，请务必读完再决定是否上生产。
@@ -381,18 +533,22 @@ openvpn-oneclick/
 | systemd 单元选择（`openvpn-server@` / `openvpn@`） | 模板契约测试 | 否 |
 | 防火墙分支（firewalld / iptables）与 NAT 持久化 | 语法检查 + 契约测试 | 否 |
 | 面板部署（venv、pip、nginx、sudoers 包装脚本） | 语法检查 + 单元测试 + 模板契约测试 | 否 |
+| 服务端设置：面板 → `sudo` → 特权助手（校验、备份、原子替换、NAT / nginx 重建、重启等待、回滚） | `tests/test_apply_config.sh`（纯校验函数）+ `tests/check_apply_contract.py`（跨组件契约）+ `bash -n` 语法检查 | 否 |
 | 面板自身逻辑（HTTP 层、management 客户端、CRL/CCD 权限等） | `backend/tests/test_fixes.py` 单元测试 | 否（测试跑在开发机上） |
 | "修复后"的性能数字 | 本地构建与代码审查 | 否 |
 
 **本脚本从未在真实 Linux 服务器上执行过完整流程**：开发过程中没有可用的 Linux 主机，也没有 Docker 与 WSL。因此上面这些环节目前**只由语法检查（`bash -n`）、单元测试与模板契约测试覆盖，缺少端到端验证**。
 
+**v1.2.0 的服务端设置落地通道也从未以 root 在真实主机上跑过。**「面板 → `sudo` → `/usr/local/lib/ovpnmanager/apply-config`」这条调用链、助手的备份 / 原子替换 / NAT 与 nginx 重建 / 重启等待 / 失败回滚，全部只在开发机上被**静态地**检查过：`templates/apply-validate.sh` 里的纯校验函数由 `tests/test_apply_config.sh` 逐条断言，面板与助手两边的常量由 `tests/check_apply_contract.py` 逐字比对，两个脚本另做 `bash -n` 语法检查。也就是说**校验逻辑有测试、落地路径没有**——"改配置把服务搞挂"恰恰只会发生在没有测试的那一半。请务必先在可回滚的测试机上跑一次「服务端设置」的保存（改一个无害项即可），确认服务重启后仍为 `active`、`<server.conf>.bak.<时间戳>` 备份已生成、网段变更时 NAT 与 nginx 放行网段同步更新，再用于生产。
+
 建议的做法：
 
 1. 先在一台**可回滚**（快照 / 可重装）的测试机上跑一遍 `sudo bash install.sh --auto`；
 2. 用客户端连一次 VPN，确认能出网、能打开 `http://<服务器>/ovpnmanager/`；
-3. 跑一次 `sudo ./verify.sh` 逐条复验修复项；
-4. 再跑一次 `sudo bash install.sh --check-update` / `--update`，确认升级不会动 PKI、`server.conf`、`SECRET_KEY` 与管理员口令；
-5. 以上都通过后，才用于生产环境。
+3. 跑一次 `sudo ./verify.sh` 逐条复验修复项（刚装好、还没有候选文件时跑，第 10 节的冒烟调用不会产生副作用）；
+4. 登录面板，在「服务端设置」里改一个无害项（例如 `keepalive`）并保存，确认服务重启后仍是 `active`、`<server.conf>.bak.<时间戳>` 备份已生成、页面回显的设置与 `server.conf` 里托管块的内容一致；网段变更还要确认 NAT 与 nginx 放行网段同步更新；
+5. 再跑一次 `sudo bash install.sh --check-update` / `--update`，确认升级不会动 PKI、`server.conf`（含托管块）、`SECRET_KEY` 与管理员口令；
+6. 以上都通过后，才用于生产环境。
 
 ## 安装后须知
 
@@ -412,7 +568,7 @@ sudo nginx -t && sudo systemctl reload nginx
 
 ### 修改 VPN 客户端网段
 
-VPN 客户端网段需要在重新安装 / 重新生成时指定；掩码**有意固定为 /24**，不提供其它掩码。
+安装阶段 `--network` 只接受网段前三位，掩码固定为 `/24`。v1.2.0 起可以在面板的「服务端设置」页面里改网段、掩码与 `topology`（掩码必须是连续掩码且前缀长度 `>= 8`，网段必须是网段地址），改完助手会重建 NAT 与 nginx 放行网段并重启服务，已有客户端的固定 IP 需要同步调整。
 
 ### 忘记面板密码
 
