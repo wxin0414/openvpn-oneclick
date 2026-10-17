@@ -7,6 +7,7 @@ import LogsView from "../views/LogsView.vue";
 import LoginView from "../views/LoginView.vue";
 import OpenVPNControlView from "../views/OpenVPNControlView.vue";
 import SettingsView from "../views/SettingsView.vue";
+import PanelSettingsView from "../views/PanelSettingsView.vue";
 
 const routes = [
   { path: "/login", name: "login", component: LoginView },
@@ -14,6 +15,7 @@ const routes = [
   { path: "/servers", name: "servers", component: ServersView },
   { path: "/clients", name: "clients", component: ClientsView },
   { path: "/settings", name: "settings", component: SettingsView },
+  { path: "/panel", name: "panel-settings", component: PanelSettingsView },
   { path: "/logs", name: "logs", component: LogsView },
   { path: "/openvpn", name: "openvpn", component: OpenVPNControlView },
 ];
