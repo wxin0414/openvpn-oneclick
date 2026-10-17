@@ -4,6 +4,29 @@
 
 关于版本号：仓库历史中 `VERSION.txt` 由 `1.2.2` 直接跳到 `1.2.4`，没有 1.2.3 的独立提交，因此这里没有 `[1.2.3]` 条目。1.2.2 与 1.2.3 都因下列安装缺陷无法在 Debian 12 上完成安装，修复集中在 1.2.4。
 
+## [1.4.1] — 2026-10-18
+
+Docker：补上"不需要 Docker 也能做的验证"。
+
+### 新增
+
+- `docker/verify-offline.sh`：从真实 `entrypoint.sh` 抽出 `init_conf` 生成配置，再用
+  `openvpn --help` 的选项表逐条核对；用**面板自己的解析器**确认托管块与 29 个可编辑项；
+  用真机 `nginx -t` 校验容器 `nginx.conf`；解析 `docker-compose.yml` 关键字段。
+  任何人（含 CI）都能复跑，不需要 Docker 守护进程。
+
+### 实测结果（110.42.102.239）
+
+- `init_conf` 生成 31 行配置；openvpn 认识 243 个选项
+- 面板解析：`port=1194 proto=udp net=10.8.44.0 topology=subnet`，**29 个可编辑项**，
+  `dns=['8.8.8.8','8.8.4.4']`，`tunnel=full`
+- `nginx -t`：`syntax is ok / test is successful`
+- compose：`services=['ovpn'] ports=['1194:1194/udp','5698:5698/tcp'] volumes=3 cap_add=['NET_ADMIN']`
+
+### 仍然未验证（如实记录）
+
+镜像构建、容器启动、运行期行为——都需要 Docker 守护进程，而目标机未安装。
+README 已把"已验证/未验证"分开写清，不再用一句含糊的"尚未验证"盖过去。
 ## [1.4.0] — 2026-10-18
 
 只读运维角色（viewer）。

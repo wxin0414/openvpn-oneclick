@@ -83,6 +83,16 @@ docker compose up -d --build
 不适用的部分：面板里的「在线升级」与「服务重启」依赖 systemd，容器内会失败；
 升级容器请用 `docker compose pull && up -d`。
 
+**已验证（离线，不需要 Docker 守护进程）**——`sudo bash docker/verify-offline.sh`：
+
+- `entrypoint.sh` 里真实的 `init_conf` 能生成 `server.conf`，且**每一条指令都在 `openvpn --help`
+  的选项表里**（含 `push` 载荷）
+- 生成的配置带托管块标记，**面板自己的解析器**能把它读成 29 个可编辑项（DNS/隧道模式都对）
+- 容器 `nginx.conf` 通过 `nginx -t`
+- `docker-compose.yml` 可解析，端口 / 三个卷 / `NET_ADMIN` 齐全
+
+**未验证**——需要 Docker 守护进程：镜像构建、容器启动、运行期行为。首次使用请留意日志。
+
 > 说明：镜像构建脚本已随仓库提供，但尚未在真机上完成一次完整 `docker compose up` 验证；
 > 首次使用请留意日志（`docker compose logs -f`）。
 
