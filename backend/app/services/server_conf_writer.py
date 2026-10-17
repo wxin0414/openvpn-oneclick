@@ -87,6 +87,8 @@ MANAGED_DIRECTIVES: tuple[str, ...] = (
     "auth",
     "user",
     "group",
+    "log-append",
+    "status",
     "mssfix",
     "sndbuf",
     "rcvbuf",
@@ -125,6 +127,8 @@ RENDER_ORDER: tuple[str, ...] = (
     "auth",
     "user",
     "group",
+    "log-append",
+    "status",
     "mssfix",
     "sndbuf",
     "rcvbuf",
@@ -238,6 +242,12 @@ def render_managed_block(settings_dict: dict) -> list[str]:
         value = settings_dict.get(key)
         if value:
             lines.append(f"{key} {value}")
+    # 日志与状态文件：路径已由 validate_editable 限定在 /var/log/openvpn/ 下，
+    # 那里安装脚本已 chown 给 OpenVPN 的运行用户，所以降权后仍可写。
+    if settings_dict.get("log_append"):
+        lines.append(f"log-append {settings_dict['log_append']}")
+    if settings_dict.get("status_file"):
+        lines.append(f"status {settings_dict['status_file']}")
     # 收发缓冲还必须**推给客户端**：只调服务端一侧的话客户端仍然是小缓冲，
     # 吞吐收益主要来自两端一起放大。install.sh 写入的托管块里本来就有这两条 push，
     # 面板若不输出，用户保存一次设置后客户端就再也拿不到缓冲调优（静默回退）。

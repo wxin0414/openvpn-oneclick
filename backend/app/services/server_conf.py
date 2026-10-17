@@ -62,6 +62,8 @@ MANAGED_SCALARS: frozenset[str] = frozenset(
         "auth",
         "user",
         "group",
+        "log-append",
+        "status",
     }
 )
 
@@ -133,6 +135,8 @@ class ServerConf:
     auth: str | None = None
     user: str | None = None
     group: str | None = None
+    log_append: str | None = None
+    status_file: str | None = None
     tls_mode: str | None = None
     status_version: int | None = None
     management: str | None = None
@@ -232,6 +236,7 @@ def _parse(path: Path) -> ServerConf:
     topology = "unknown"
     cipher = data_ciphers = auth = tls_mode = None
     user = group = None
+    log_append = status_file = None
     status_version: int | None = None
     management = crl_verify = client_config_dir = None
     pushes: list[str] = []
@@ -275,6 +280,10 @@ def _parse(path: Path) -> ServerConf:
             user = arg
         elif key == "group" and arg:
             group = arg
+        elif key == "log-append" and arg:
+            log_append = arg
+        elif key == "status" and arg:
+            status_file = arg
         elif key == "cipher" and arg:
             cipher = arg
         elif key == "data-ciphers" and arg:
@@ -318,6 +327,8 @@ def _parse(path: Path) -> ServerConf:
         data_ciphers=data_ciphers,
         user=user,
         group=group,
+        log_append=log_append,
+        status_file=status_file,
         auth=auth,
         tls_mode=tls_mode,
         status_version=status_version,
@@ -495,6 +506,8 @@ def editable_settings(conf: ServerConf, pushes: dict) -> dict:
         "netmask": conf.netmask_or_default,
         "user": conf.user,
         "group": conf.group,
+        "log_append": conf.log_append,
+        "status_file": conf.status_file,
         "topology": conf.topology if conf.topology in _VALID_TOPOLOGIES else DEFAULT_EDITABLE_TOPOLOGY,
     }
 
@@ -535,6 +548,8 @@ EDITABLE_KEYS: tuple[str, ...] = (
     "auth",
     "user",
     "group",
+    "log_append",
+    "status_file",
 )
 
 _NULLABLE_INTS = {"mssfix", "sndbuf", "rcvbuf", "max_clients"}
@@ -601,6 +616,15 @@ def validate_editable(payload: dict, *, current: dict) -> list[str]:
                 problems.append("mssfix 必须在 0-1500 之间")
             elif key != "mssfix" and not 0 <= value <= 10485760:
                 problems.append(f"{key} 必须在 0-10485760 之间")
+        elif key in ("log_append", "status_file"):
+            # OpenVPN 以非 root 运行，只有 /var/log/openvpn 被授权写入。
+            # 允许改到别处必然导致降权后写不了日志、服务起不来（虽然会回滚，
+            # 但没必要让用户踩这一下）。
+            if value is not None:
+                if not isinstance(value, str) or not value.startswith("/var/log/openvpn/"):
+                    problems.append(f"{key} 必须位于 /var/log/openvpn/ 下（OpenVPN 以降权用户运行，只有该目录被授权写入）")
+                elif ".." in value or "\n" in value:
+                    problems.append(f"{key} 含非法字符")
         elif key in ("user", "group"):
             # 只校验名字形态；该用户/组是否真的存在、降权后能否读证书，
             # 由助手重启服务时用真实结果回答（起不来就整体回滚）。

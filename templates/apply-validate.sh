@@ -13,7 +13,7 @@ MARK_END='# <<< ovpn-oneclick managed <<<'
 # 托管块内允许出现的指令名
 # 注意 fast-io 与 explicit-exit-notify 只对 UDP 有效：它们必须由面板托管，
 # 否则在面板里把 proto 从 udp 改成 tcp 之后，配置里会留下过期的 UDP 专用指令。
-MANAGED_ALLOW="port proto server topology data-ciphers auth user group mssfix sndbuf rcvbuf keepalive client-to-client max-clients duplicate-cn block-ipv6 push fast-io explicit-exit-notify"
+MANAGED_ALLOW="port proto server topology data-ciphers auth user group log-append status mssfix sndbuf rcvbuf keepalive client-to-client max-clients duplicate-cn block-ipv6 push fast-io explicit-exit-notify"
 
 # 允许出现在 push 里的前缀
 # ifconfig-ipv6 是 --block-ipv6 方案需要的（给客户端一个"看着合法"的 IPv6 配置，
