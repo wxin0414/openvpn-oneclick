@@ -193,7 +193,10 @@ sudo nginx -t && sudo systemctl reload nginx
 | 加密 | 数据加密套件 `data-ciphers` | `data-ciphers`（冒号分隔，仅接受 AES-256-GCM / AES-128-GCM / CHACHA20-POLY1305 及其组合） |
 | 加密 | `auth` 摘要算法 | `auth`（AEAD 套件下不参与数据面，保留以兼容旧客户端） |
 | 权限 | 运行用户 / 组 | `user` / `group`（改错会让服务起不来，保存前有二次确认，助手会自动回滚） |
-| 日志 | `log-append` / `status` | 两个绝对路径，**必须是 `/var/log/openvpn/` 下**：OpenVPN 以降权用户运行，只有该目录被授权写入 |
+| 日志 | `log-append` / `status` | 两个绝对路径，**必须是 `/var/log/openvpn/` 下**：OpenVPN 以降权用户运行，只有该目录被授权写入 || 会话 | `reneg-sec` | TLS 重协商间隔（秒，0 = 禁用）。长连接更稳，但重协商越少安全性略降 |
+| 会话 | `inactive` | 空闲超过该秒数自动断开（0 = 禁用），配合"最大连接数"回收名额 |
+| 安全 | `tls-version-min` | TLS 最低版本 1.0/1.1/1.2/1.3。禁掉旧版 TLS，客户端 OpenSSL 太老会连不上 |
+| 日志 | `verb` / `mute` | 日志详细度 0-11、同类消息抑制条数。这五项都是**可选**：不设置就不写进配置，用 OpenVPN 默认 |
 
 保存时由接口侧做最终校验，不通过返回 400 并给出具体中文原因：
 

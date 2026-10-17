@@ -226,6 +226,41 @@
             <el-input v-model="form.status_file" placeholder="/var/log/openvpn/openvpn-status.log" />
             <div class="field-tip">面板的在线客户端列表依赖它，同样必须在 /var/log/openvpn/ 下。</div>
           </el-form-item>
+
+          <el-form-item label="TLS 重协商间隔 (reneg-sec)">
+            <el-input-number v-model="form.reneg_sec" :min="0" :max="604800" :step="60" controls-position="right" />
+            <div v-if="errors.reneg_sec" class="field-tip err">{{ errors.reneg_sec }}</div>
+            <div v-else class="field-tip">秒。0 = 禁用重协商（长连接更稳但安全性略降）。留空则用 OpenVPN 默认（3600）。</div>
+          </el-form-item>
+
+          <el-form-item label="最低 TLS 版本 (tls-version-min)">
+            <el-select v-model="form.tls_version_min" clearable placeholder="不设置（用 OpenVPN 默认）" style="width: 100%">
+              <el-option label="TLS 1.3（最严）" value="1.3" />
+              <el-option label="TLS 1.2（推荐）" value="1.2" />
+              <el-option label="TLS 1.1（不安全）" value="1.1" />
+              <el-option label="TLS 1.0（不安全）" value="1.0" />
+            </el-select>
+            <div v-if="errors.tls_version_min" class="field-tip err">{{ errors.tls_version_min }}</div>
+            <div v-else class="field-tip">禁掉旧版 TLS。注意：客户端 OpenSSL 太老时会直接连不上，改前先确认客户端版本。</div>
+          </el-form-item>
+
+          <el-form-item label="日志详细度 (verb)">
+            <el-input-number v-model="form.verb" :min="0" :max="11" controls-position="right" />
+            <div v-if="errors.verb" class="field-tip err">{{ errors.verb }}</div>
+            <div v-else class="field-tip">0-11，默认 3。排查连接问题时临时调到 4-6，事后记得改回。</div>
+          </el-form-item>
+
+          <el-form-item label="重复日志抑制 (mute)">
+            <el-input-number v-model="form.mute" :min="0" :max="10000" controls-position="right" />
+            <div v-if="errors.mute" class="field-tip err">{{ errors.mute }}</div>
+            <div v-else class="field-tip">同类消息最多显示 N 条，防止日志被刷爆。</div>
+          </el-form-item>
+
+          <el-form-item label="空闲断开 (inactive)">
+            <el-input-number v-model="form.inactive" :min="0" :max="86400" :step="60" controls-position="right" />
+            <div v-if="errors.inactive" class="field-tip err">{{ errors.inactive }}</div>
+            <div v-else class="field-tip">秒；0 = 禁用。空闲超过该时间自动断开，配合「最大连接数」回收名额。</div>
+          </el-form-item>
           <el-form-item label="发送缓冲区 (sndbuf)" required>
             <el-input-number v-model="form.sndbuf" :min="0" :max="BUFFER_MAX" :step="1024" controls-position="right" />
             <div v-if="errors.sndbuf" class="field-tip err">{{ errors.sndbuf }}</div>
@@ -362,6 +397,11 @@ const SETTINGS_KEYS = [
   "group",
   "log_append",
   "status_file",
+  "reneg_sec",
+  "tls_version_min",
+  "verb",
+  "mute",
+  "inactive",
 ];
 
 // 下拉选项。接口若返回列表外的值，会以“当前值”占位追加，避免静默改写配置。
@@ -423,6 +463,12 @@ const form = reactive({
   group: "",
   log_append: "",
   status_file: "",
+  // 这五项是可选调优：null 表示「不写进配置，用 OpenVPN 默认」（0 有真实含义，不能当未设置）
+  reneg_sec: null,
+  tls_version_min: null,
+  verb: null,
+  mute: null,
+  inactive: null,
 });
 
 // 只读指令单独存一份，避免模板里对可能为 null 的对象取属性。

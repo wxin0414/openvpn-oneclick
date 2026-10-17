@@ -64,6 +64,11 @@ MANAGED_SCALARS: frozenset[str] = frozenset(
         "group",
         "log-append",
         "status",
+        "reneg-sec",
+        "tls-version-min",
+        "verb",
+        "mute",
+        "inactive",
     }
 )
 
@@ -137,6 +142,11 @@ class ServerConf:
     group: str | None = None
     log_append: str | None = None
     status_file: str | None = None
+    reneg_sec: int | None = None
+    tls_version_min: str | None = None
+    verb: int | None = None
+    mute: int | None = None
+    inactive: int | None = None
     tls_mode: str | None = None
     status_version: int | None = None
     management: str | None = None
@@ -237,6 +247,8 @@ def _parse(path: Path) -> ServerConf:
     cipher = data_ciphers = auth = tls_mode = None
     user = group = None
     log_append = status_file = None
+    reneg_sec = verb = mute = inactive = None
+    tls_version_min = None
     status_version: int | None = None
     management = crl_verify = client_config_dir = None
     pushes: list[str] = []
@@ -284,6 +296,16 @@ def _parse(path: Path) -> ServerConf:
             log_append = arg
         elif key == "status" and arg:
             status_file = arg
+        elif key == "reneg-sec" and arg and arg.isdigit():
+            reneg_sec = int(arg)
+        elif key == "tls-version-min" and arg:
+            tls_version_min = arg
+        elif key == "verb" and arg and arg.isdigit():
+            verb = int(arg)
+        elif key == "mute" and arg and arg.isdigit():
+            mute = int(arg)
+        elif key == "inactive" and arg and arg.isdigit():
+            inactive = int(arg)
         elif key == "cipher" and arg:
             cipher = arg
         elif key == "data-ciphers" and arg:
@@ -329,6 +351,11 @@ def _parse(path: Path) -> ServerConf:
         group=group,
         log_append=log_append,
         status_file=status_file,
+        reneg_sec=reneg_sec,
+        tls_version_min=tls_version_min,
+        verb=verb,
+        mute=mute,
+        inactive=inactive,
         auth=auth,
         tls_mode=tls_mode,
         status_version=status_version,
@@ -508,6 +535,11 @@ def editable_settings(conf: ServerConf, pushes: dict) -> dict:
         "group": conf.group,
         "log_append": conf.log_append,
         "status_file": conf.status_file,
+        "reneg_sec": conf.reneg_sec,
+        "tls_version_min": conf.tls_version_min,
+        "verb": conf.verb,
+        "mute": conf.mute,
+        "inactive": conf.inactive,
         # data-ciphers / auth 是可编辑项（在 EDITABLE_KEYS 与托管块里），必须出现在
         # 这里。曾经只加进了 readonly_settings，导致"能写、读不回"：面板显示空值，
         # 每次保存都被判成"已修改"。实测在 110.42.102.239 上发现。
@@ -553,9 +585,17 @@ EDITABLE_KEYS: tuple[str, ...] = (
     "group",
     "log_append",
     "status_file",
+    "reneg_sec",
+    "tls_version_min",
+    "verb",
+    "mute",
+    "inactive",
 )
 
 _NULLABLE_INTS = {"mssfix", "sndbuf", "rcvbuf", "max_clients"}
+
+# tls-version-min 的合法取值（OpenVPN 2.6 支持的 TLS 下限）
+_VALID_TLS_MIN = ("1.0", "1.1", "1.2", "1.3")
 
 
 def validate_editable(payload: dict, *, current: dict) -> list[str]:
@@ -619,6 +659,24 @@ def validate_editable(payload: dict, *, current: dict) -> list[str]:
                 problems.append("mssfix 必须在 0-1500 之间")
             elif key != "mssfix" and not 0 <= value <= 10485760:
                 problems.append(f"{key} 必须在 0-10485760 之间")
+        elif key in ("reneg_sec", "verb", "mute", "inactive"):
+            # 都是"可选整数"：None 表示不写进配置（用 OpenVPN 默认）。
+            # 0 在这里有真实含义（0 = 禁用该特性），所以不能把 0 当作"未设置"。
+            if value is not None:
+                if isinstance(value, bool) or not isinstance(value, int):
+                    problems.append(f"{key} 必须是整数或 null")
+                else:
+                    lo, hi = {
+                        "reneg_sec": (0, 604800),   # 0=禁用重协商；上限一周
+                        "verb": (0, 11),
+                        "mute": (0, 10000),
+                        "inactive": (0, 86400),     # 秒；0=禁用空闲断开
+                    }[key]
+                    if not lo <= value <= hi:
+                        problems.append(f"{key} 必须在 {lo}-{hi} 之间")
+        elif key == "tls_version_min":
+            if value is not None and value not in _VALID_TLS_MIN:
+                problems.append(f"tls_version_min 只能是 {'/'.join(_VALID_TLS_MIN)} 或 null")
         elif key in ("log_append", "status_file"):
             # OpenVPN 以非 root 运行，只有 /var/log/openvpn 被授权写入。
             # 允许改到别处必然导致降权后写不了日志、服务起不来（虽然会回滚，

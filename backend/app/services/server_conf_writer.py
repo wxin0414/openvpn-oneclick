@@ -89,6 +89,11 @@ MANAGED_DIRECTIVES: tuple[str, ...] = (
     "group",
     "log-append",
     "status",
+    "reneg-sec",
+    "tls-version-min",
+    "verb",
+    "mute",
+    "inactive",
     "mssfix",
     "sndbuf",
     "rcvbuf",
@@ -129,6 +134,11 @@ RENDER_ORDER: tuple[str, ...] = (
     "group",
     "log-append",
     "status",
+    "reneg-sec",
+    "tls-version-min",
+    "verb",
+    "mute",
+    "inactive",
     "mssfix",
     "sndbuf",
     "rcvbuf",
@@ -238,6 +248,18 @@ def render_managed_block(settings_dict: dict) -> list[str]:
     # 降权运行：OpenVPN 启动完成后切到这些用户/组。名字由 validate_editable
     # 按用户名的字符规则校验；若该用户不存在或降权后读不到证书，服务会起不来，
     # 助手会整体回滚（见 apply-config 的 ROLLED_BACK 分支）。
+    # 会话与可观测性（这五项都是可选的调优项，安装脚本不写默认值；
+    # 面板保存时才落进托管块，不写则用 OpenVPN 自己的默认）
+    if settings_dict.get("reneg_sec") is not None:
+        lines.append(f"reneg-sec {int(settings_dict['reneg_sec'])}")
+    if settings_dict.get("tls_version_min"):
+        lines.append(f"tls-version-min {settings_dict['tls_version_min']}")
+    if settings_dict.get("verb") is not None:
+        lines.append(f"verb {int(settings_dict['verb'])}")
+    if settings_dict.get("mute") is not None:
+        lines.append(f"mute {int(settings_dict['mute'])}")
+    if settings_dict.get("inactive") is not None:
+        lines.append(f"inactive {int(settings_dict['inactive'])}")
     for key in ("user", "group"):
         value = settings_dict.get(key)
         if value:
