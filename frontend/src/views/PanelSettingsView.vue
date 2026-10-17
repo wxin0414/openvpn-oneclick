@@ -7,8 +7,10 @@ import {
   getPanelSettings,
   checkUpgrade,
   getNetwork,
+  getUpgradeStatus,
   listBackups,
   restartPanel,
+  startUpgrade,
   updateNetwork,
   restoreBackup,
   updateAdminCredentials,
@@ -306,6 +308,65 @@ async function saveNetwork() {
 
 // ---- 版本检查 ----
 const upgrade = reactive({ current: "", latest: "", update_available: false, error: "" });
+const upgrading = ref(false);
+const upgradeStatus = ref("");
+
+// 触发升级：手打 UPGRADE 确认；升级会重启面板，所以只负责"发起"，进度靠轮询
+async function doUpgrade() {
+  let input = "";
+  try {
+    const res = await ElMessageBox.prompt(
+      "升级会下载并以 root 重跑安装器，过程中面板与 OpenVPN 都会重启。\n" +
+        "安装器会先自动备份；失败不会回滚到旧版本，但配置与证书都在备份里。\n\n请输入 UPGRADE 确认：",
+      "在线升级",
+      {
+        confirmButtonText: "开始升级",
+        cancelButtonText: "取消",
+        inputPlaceholder: "UPGRADE",
+        inputValidator: (v) => (v || "").trim().toUpperCase() === "UPGRADE" || "请输入 UPGRADE",
+        type: "warning",
+      },
+    );
+    input = res.value;
+  } catch {
+    return;
+  }
+  upgrading.value = true;
+  try {
+    const { data } = await startUpgrade((input || "").trim().toUpperCase());
+    upgradeStatus.value = "running";
+    ElMessage.success(`升级已开始：${data.from} → ${data.to}`);
+    pollUpgrade();
+  } catch (err) {
+    upgrading.value = false;
+    const detail = err?.response?.data?.detail;
+    ElMessage.error(typeof detail === "string" ? detail : "升级未能启动");
+  }
+}
+
+// 轮询升级状态；面板会在升级中重启，请求失败是正常的，继续等
+async function pollUpgrade() {
+  for (let i = 0; i < 120; i++) {
+    await new Promise((r) => setTimeout(r, 5000));
+    try {
+      const { data } = await getUpgradeStatus();
+      upgradeStatus.value = data.status || "";
+      if (data.status === "ok") {
+        ElMessageBox.alert("升级完成。请刷新页面并重新登录。", "升级成功", { type: "success" });
+        upgrading.value = false;
+        return;
+      }
+      if (data.status === "failed") {
+        ElMessageBox.alert(`升级失败：${data.reason || "详见日志"}`, "升级失败", { type: "error" });
+        upgrading.value = false;
+        return;
+      }
+    } catch {
+      /* 面板重启中，继续轮询 */
+    }
+  }
+  upgrading.value = false;
+}
 const checking = ref(false);
 
 async function doCheckUpgrade() {
@@ -515,6 +576,15 @@ onMounted(() => {
             → 最新 {{ upgrade.latest }}
           </span>
           <el-button class="ml" size="small" :loading="checking" @click="doCheckUpgrade">检查更新</el-button>
+          <el-button
+            v-if="upgrade.update_available"
+            class="ml"
+            size="small"
+            type="danger"
+            :loading="upgrading"
+            @click="doUpgrade"
+          >升级</el-button>
+          <span v-if="upgradeStatus === 'running'" class="ml muted">升级进行中…</span>
         </el-descriptions-item>
       </el-descriptions>
       <div class="actions">

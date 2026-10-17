@@ -44,5 +44,10 @@ export const updateNetwork = (ipForward, egressIf) =>
 // 检查是否有新版本（只读，不下载不执行）
 export const checkUpgrade = () => api.get("/panel/upgrade/check");
 
+// 触发在线升级（异步；必须带 confirm="UPGRADE"）
+export const startUpgrade = (confirm) => api.post("/panel/upgrade", { confirm });
+// 升级进度（升级会重启面板，所以前端轮询）
+export const getUpgradeStatus = () => api.get("/panel/upgrade/status");
+
 // 重启面板服务（走受控的 systemctl 包装脚本）
 export const restartPanel = () => api.post("/panel/restart");
