@@ -11,8 +11,19 @@ __PANEL_USER__ ALL=(root) NOPASSWD: __SYSTEMCTL__ is-active __OVPN_SERVICE__
 __PANEL_USER__ ALL=(root) NOPASSWD: __SYSTEMCTL__ status --no-pager --full __OVPN_SERVICE__
 __PANEL_USER__ ALL=(root) NOPASSWD: __SYSTEMCTL__ show -p * __OVPN_SERVICE__
 
+# 「面板设置」页的「重启面板」按钮：**只**允许重启面板自己的 systemd 服务。
+# 包装脚本 systemctl-wrapper 会把 unit 名钉死成 ovpnmanager，调用者传不进别的服务。
+__PANEL_USER__ ALL=(root) NOPASSWD: __SYSTEMCTL__ restart __PANEL_SERVICE__
+__PANEL_USER__ ALL=(root) NOPASSWD: __SYSTEMCTL__ is-active __PANEL_SERVICE__
+
 # 面板的「服务端设置」页面靠这条把配置落地。
 # 故意**不允许任何参数**：候选文件路径、服务名等全部取自 root 所有的
 # /etc/ovpn-oneclick/apply.conf，调用者影响不了；助手内部还会校验候选
 # 只动了它托管的那个块。详见 templates/apply-config.sh。
 __PANEL_USER__ ALL=(root) NOPASSWD: /usr/local/lib/ovpnmanager/apply-config
+
+# 面板的「面板设置」页面靠这条把 nginx 站点配置落地（端口/域名/放行/TLS）。
+# 与上一条**并列**、同样**不允许任何参数**：路径来自 root 所有的
+# /etc/ovpn-oneclick/panel.conf，候选文件还会被校验属主与权限。
+# 详见 templates/apply-panel-config.sh。
+__PANEL_USER__ ALL=(root) NOPASSWD: /usr/local/lib/ovpnmanager/apply-panel-config

@@ -1,0 +1,63 @@
+# =============================================================================
+#  apply-panel-config 的路径配置（由 install.sh 生成，root:root 0644）
+# =============================================================================
+#
+# 这是"面板自身的网络与安全配置"这条落地通道的配置：面板以非 root 用户运行，
+# 它**不直接改** nginx 站点配置，而是把"想改成什么样"写到 CANDIDATE 指向的文件，
+# 再用 sudo 调用 apply-panel-config（sudoers 里只允许这一条命令、且不允许任何参数）。
+# 助手以 root 身份校验、渲染、备份、nginx -t、reload，失败自动回滚。
+#
+# 与 apply.conf 的关系
+# --------------------
+# 两者并行、互不包含：apply.conf 管 server.conf（OpenVPN 服务端），本文件管
+# nginx 站点配置（面板入口）。刻意分成两个助手，是为了让"改 OpenVPN 端口"和
+# "改面板端口"各自只拿到最小权限，任何一边的校验漏洞都不会自动扩成另一边。
+#
+# 注意：本文件只放**路径与固定参数**；用户在面板里改过的实际值不写在这里，
+# 而是由助手成功后写进 ${STATE_DIR}/panel.state（见文件末尾说明）。
+
+# nginx 站点配置文件（deploy_panel 渲染的那一份）
+NGINX_CONF="__NGINX_CONF__"
+
+# 状态目录（panel.state 与 panel.log 都放这里）
+STATE_DIR="__STATE_DIR__"
+
+# 面板写候选配置的位置（必须归面板用户所有，助手会校验属主与权限）
+CANDIDATE="__CANDIDATE__"
+
+# 面板的系统用户（候选文件的期望属主）
+PANEL_USER="__PANEL_USER__"
+
+# 前端静态文件根目录与子路径名（nginx root / location 前缀）
+WEB_ROOT="__WEB_ROOT__"
+WEB_NAME="__WEB_NAME__"
+
+# nginx 配置备份目录（助手只保留最近 5 份）
+BACKUP_DIR="__BACKUP_DIR__"
+
+# 自签证书目录（助手会以 0700 创建，证书 0644、私钥 0600）
+TLS_DIR="__TLS_DIR__"
+
+# reload nginx 后等待其变为 active 的最长秒数
+WAIT_RELOAD_SECONDS="__WAIT_RELOAD_SECONDS__"
+
+# ---------------------------------------------------------------------------
+# 以下为附加路径（面板侧读取本文件时会用到，助手也用它们定位站点模板）
+# ---------------------------------------------------------------------------
+
+# 面板进程自身监听的内部端口（uvicorn，仅 127.0.0.1；nginx 反代到这个端口）
+PANEL_PORT="__PANEL_PORT__"
+
+# nginx 与面板自己的 systemd 服务名（reload / restart 用）
+NGINX_SERVICE="__NGINX_SERVICE__"
+PANEL_SERVICE="__PANEL_SERVICE__"
+
+# OpenVPN 服务端配置：用来取 VPN 网段（放行来源 vpn 模式）与 OpenVPN 端口
+# （监听端口不允许与它相同），避免在面板里把面板端口配成 OpenVPN 端口
+SERVER_CONF="__SERVER_CONF__"
+
+# nginx 站点模板（助手重新渲染时以它为唯一来源，安装脚本渲染时也用同一份）
+NGINX_TEMPLATE="__NGINX_TEMPLATE__"
+
+# 备份保留份数
+BACKUP_KEEP="__BACKUP_KEEP__"

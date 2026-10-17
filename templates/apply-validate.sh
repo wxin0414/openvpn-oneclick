@@ -105,6 +105,50 @@ validate_managed_block() { # validate_managed_block <配置文件>
   return 0
 }
 
+# ---------------------------------------------------------------------------
+# 候选文件的通用校验（apply-config 与 apply-panel-config **共用同一份实现**）
+#
+# 为什么要抽成函数：两个特权助手都以 root 运行，都信任"面板写出来的那个文件"，
+# 因此"文件是否可信"的判据必须完全一致 —— 存在 / 普通文件 / 非空 / 不超过上限 /
+# 不含 NUL / 属主是面板用户 / 不是组或其他用户可写。任何一处写松了，
+# 本机其它用户就能给 root 助手投毒。实测过 NUL 检测的坑（见文件头注释），
+# 这里只保留唯一一份实现，避免两份代码慢慢漂移。
+#
+# 用法：candidate_file_problem <路径> <期望属主或空> <最大字节数>
+# 通过时无输出并返回 0；不通过时把中文原因打印到 stdout（调用方负责 fail）。
+# ---------------------------------------------------------------------------
+candidate_file_problem() {
+  local path="$1" owner_expect="${2:-}" max_bytes="${3:-131072}"
+  local owner perm size
+  [ -e "$path" ] || { echo "候选配置不存在：${path}（面板应先写入该文件）"; return 0; }
+  [ -f "$path" ] || { echo "候选配置不是普通文件：${path}"; return 0; }
+
+  if [ -n "$owner_expect" ]; then
+    owner="$(stat -c '%U' "$path" 2>/dev/null || echo '?')"
+    [ "$owner" = "$owner_expect" ] || {
+      echo "候选配置属主应为 ${owner_expect}，实际是 ${owner}"
+      return 0
+    }
+  fi
+
+  perm="$(stat -c '%a' "$path" 2>/dev/null || echo '')"
+  case "$perm" in
+    *[2367]) echo "候选配置不能是组或其他用户可写（当前 ${perm}）"; return 0 ;;
+  esac
+
+  size="$(stat -c '%s' "$path" 2>/dev/null || echo 0)"
+  [ "$size" -gt 0 ] || { echo "候选配置是空文件"; return 0; }
+  [ "$size" -le "$max_bytes" ] || { echo "候选配置过大（${size} 字节 > ${max_bytes}）"; return 0; }
+
+  # NUL 字节检测，理由见 apply-config.sh 里的同一段注释（bash 存不下 NUL，
+  # 用 $'\x00' 会让 grep 退化成匹配每一行）。用 tr 只保留 NUL 再计数。
+  if [ "$(tr -dc '\0' < "$path" | wc -c)" -ne 0 ]; then
+    echo "候选配置包含 NUL 字节，拒绝处理"
+    return 0
+  fi
+  return 0
+}
+
 # push 内容白名单校验
 validate_push() { # validate_push <含引号或不含引号的 payload>
   local payload="$1" first rest

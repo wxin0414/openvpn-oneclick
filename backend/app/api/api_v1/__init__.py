@@ -8,6 +8,7 @@ from app.api.api_v1.endpoints import (
     jobs,
     logs,
     openvpn,
+    panel,
     servers,
     settings,
     users,
@@ -24,4 +25,6 @@ api_router.include_router(servers.router, prefix="/servers", tags=["servers"])
 api_router.include_router(clients.router, prefix="/clients", tags=["clients"])
 # 服务端设置：只暴露"可编辑项"，实际落地由 root 助手完成（见 endpoints/settings.py）
 api_router.include_router(settings.router, prefix="/settings", tags=["settings"])
+# 面板自身的网络与安全设置：挂在顶层 /panel，避免被 /settings 下的通配路由遮蔽
+api_router.include_router(panel.router, prefix="/panel", tags=["panel"])
 api_router.include_router(users.router, prefix="/users", tags=["users"])

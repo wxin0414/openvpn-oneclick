@@ -111,32 +111,12 @@ log "开始应用：candidate=${CANDIDATE}"
 
 # ---------------------------------------------------------------------------
 # 1. 候选文件的基本校验
+#    具体实现已抽到 apply-validate.sh 的 candidate_file_problem()，
+#    与第二个特权助手 apply-panel-config **共用同一份代码**：
+#    两个助手都信任面板写出的文件，判据必须一字不差。
 # ---------------------------------------------------------------------------
-[ -e "$CANDIDATE" ] || fail "候选配置不存在：${CANDIDATE}（面板应先写入该文件）"
-[ -f "$CANDIDATE" ] || fail "候选配置不是普通文件：${CANDIDATE}"
-
-if [ -n "${PANEL_USER:-}" ]; then
-  owner="$(stat -c '%U' "$CANDIDATE" 2>/dev/null || echo '?')"
-  [ "$owner" = "$PANEL_USER" ] || fail "候选配置属主应为 ${PANEL_USER}，实际是 ${owner}"
-fi
-
-perm="$(stat -c '%a' "$CANDIDATE" 2>/dev/null || echo '')"
-case "$perm" in
-  *[2367]) fail "候选配置不能是组或其他用户可写（当前 ${perm}）" ;;
-esac
-
-size="$(stat -c '%s' "$CANDIDATE" 2>/dev/null || echo 0)"
-[ "$size" -gt 0 ] || fail "候选配置是空文件"
-[ "$size" -le 131072 ] || fail "候选配置过大（${size} 字节 > 128KB）"
-
-# NUL 字节检测。
-# **不要**写成 `grep -qU $'\x00' "$CANDIDATE"`：bash 的 $'\x00' 会被截断成空字符串
-#（bash 变量存不下 NUL），实际执行的是 `grep -qU '' 文件` —— 空模式匹配每一行，
-# 于是**任何**文件都被判成"含 NUL"，「服务端设置」的每一次保存都会被拒绝。
-# 实测踩过这个坑。改用 tr 只保留 NUL 字节再计数，不依赖 PCRE。
-if [ "$(tr -dc '\0' < "$CANDIDATE" | wc -c)" -ne 0 ]; then
-  fail "候选配置包含 NUL 字节，拒绝处理"
-fi
+candidate_problem="$(candidate_file_problem "$CANDIDATE" "${PANEL_USER:-}" 131072)"
+[ -n "$candidate_problem" ] && fail "$candidate_problem"
 
 [ -f "$SERVER_CONF" ] || fail "找不到当前 server.conf：${SERVER_CONF}"
 

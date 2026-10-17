@@ -95,6 +95,29 @@ PANEL_WEB_PORT="${PANEL_WEB_PORT:-5698}"
 # 面板默认只允许 VPN 隧道网段与本机（见 nginx 模板）；要从公网直连就得把来源
 # 加到这里。注意：allow/deny 是"首次匹配生效"，所以这些行会插在 deny all 之前。
 PANEL_ALLOW="${PANEL_ALLOW:-}"
+# ---- 面板自身的网络与安全设置（「面板设置」页的初始值）----
+#
+# 为什么需要"持久化"这一层：这些值都能在面板里改（见 templates/apply-panel-config.sh），
+# 而重装 / --update 会重新渲染 nginx。如果渲染时还用 build 默认值，用户改过的端口
+# 就会在一次升级后**静默退回默认**，面板可能再也连不上（端口变了、安全组没开）。
+# 因此落地结果被写进 ${STATE_DIR}/panel.state，安装脚本渲染时**优先读它**。
+#
+# 取值优先级：panel.state > 下面的环境变量 / 默认值。
+PANEL_STATE_FILE="${PANEL_STATE_FILE:-${STATE_DIR}/panel.state}"
+# 绑定域名（nginx server_name，留空= _）
+PANEL_SERVER_NAME="${PANEL_SERVER_NAME:-_}"
+# 放行来源模式：vpn / public / custom（留空=由 PANEL_ALLOW 推导，见 derive_panel_allow）
+PANEL_ALLOW_MODE="${PANEL_ALLOW_MODE:-}"
+PANEL_ALLOW_CIDRS="${PANEL_ALLOW_CIDRS:-}"
+# TLS：off / selfsigned / existing（existing 时需同时给 cert 与 key）
+PANEL_TLS_MODE="${PANEL_TLS_MODE:-off}"
+PANEL_TLS_CERT="${PANEL_TLS_CERT:-}"
+PANEL_TLS_KEY="${PANEL_TLS_KEY:-}"
+# 面板 TLS 相关目录与 nginx 配置备份目录（root 所有）
+PANEL_TLS_DIR="${PANEL_TLS_DIR:-${STATE_DIR}/tls}"
+PANEL_BACKUP_DIR="${PANEL_BACKUP_DIR:-/var/backups/ovpn-oneclick/panel}"
+# 面板访问协议（由 TLS 模式推导，用于打印地址与自检）
+PANEL_SCHEME="${PANEL_SCHEME:-http}"
 PANEL_USER="${PANEL_USER:-ovpnpanel}"
 PANEL_HOME="${PANEL_HOME:-/opt/ovpnmanager}"
 WEB_ROOT="${WEB_ROOT:-/var/www}"
@@ -1013,6 +1036,15 @@ deploy_panel() {
   mkdir -p "${PANEL_HOME}/backend/data"
   TPL_DIR="${src}/templates"
 
+  # 面板访问设置的校验库与 nginx 渲染库：安装时直接用仓库里的这两份实现，
+  # 保证"安装脚本渲染"和"root 助手渲染"是同一段代码（见 panel-nginx.sh）。
+  # shellcheck disable=SC1090
+  . "${TPL_DIR}/panel-validate.sh"
+  # shellcheck disable=SC1090
+  . "${TPL_DIR}/panel-nginx.sh"
+  # **优先读 panel.state**：重装/升级不冲掉用户在面板里改过的端口/域名/TLS
+  load_panel_state
+
   # 虚拟环境
   if [ ! -x "${PANEL_HOME}/backend/.venv/bin/python" ]; then
     info "创建 Python 虚拟环境…"
@@ -1074,7 +1106,7 @@ deploy_panel() {
     install -m 0600 "$env_rendered" "${PANEL_HOME}/backend/.env"
     printf '\n'
     printf "${C_WARN}================= 请立即保存面板登录信息 =================${C_RESET}\n"
-    printf "  面板地址 : http://<服务器地址>:%s/%s/\n" "$PANEL_WEB_PORT" "$WEB_NAME"
+    printf "  面板地址 : %s://<服务器地址>:%s/%s/\n" "$PANEL_SCHEME" "$PANEL_WEB_PORT" "$WEB_NAME"
     printf "  用户名   : admin\n"
     printf "  初始口令 : %s\n" "$admin_pw"
     printf "${C_WARN}=========================================================${C_RESET}\n\n"
@@ -1084,12 +1116,15 @@ deploy_panel() {
   # 降权：受限 systemctl 包装脚本 + sudoers 白名单
   install -D -m 0755 "${TPL_DIR}/systemctl-wrapper.sh" /usr/local/lib/ovpnmanager/systemctl-wrapper
   render "${TPL_DIR}/sudoers" "/etc/sudoers.d/ovpnmanager" \
-    PANEL_USER "$PANEL_USER" OVPN_SERVICE "$OVPN_SERVICE" SYSTEMCTL "$(command -v systemctl)"
+    PANEL_USER "$PANEL_USER" OVPN_SERVICE "$OVPN_SERVICE" PANEL_SERVICE "ovpnmanager" \
+    SYSTEMCTL "$(command -v systemctl)"
   chmod 0440 /etc/sudoers.d/ovpnmanager
   visudo -cf /etc/sudoers.d/ovpnmanager >/dev/null 2>&1 || { rm -f /etc/sudoers.d/ovpnmanager; die "sudoers 校验失败，已回滚"; }
 
   # 「服务端设置」页面的落地通道：特权助手 + 它的配置 + 校验库
   install_apply_helper
+  # 「面板设置」页面的落地通道：第二个特权助手 + panel.conf + 校验/渲染库
+  install_panel_helper
 
   # 归属与权限
   chown -R "${PANEL_USER}:${PANEL_USER}" "$PANEL_HOME"
@@ -1105,35 +1140,17 @@ deploy_panel() {
   systemctl daemon-reload
   systemctl enable ovpnmanager >/dev/null 2>&1 || true
 
-  # nginx（同源反代 /api，消除 CORS 预检；开启 gzip；仅对 VPN 网段开放）
+  # nginx（同源反代 /api，消除 CORS 预检；开启 gzip）
+  #
+  # 监听端口 / 绑定域名 / 放行来源 / TLS 由 render_panel_nginx 渲染，用的是
+  # templates/panel-nginx.sh —— 与 root 助手 apply-panel-config **同一份实现**，
+  # 并且值来自 load_panel_state（**优先读 /etc/ovpn-oneclick/panel.state**）。
+  # 这条优先级是刻意设计的：否则一次 --update 就会把用户在面板里改过的端口/域名/TLS
+  # 冲回默认值，而面板可能因此再也连不上（端口变了、安全组还没跟着开）。
   local conf="/etc/nginx/conf.d/ovpnmanager.conf"
   [ -d /etc/nginx/sites-available ] && conf="/etc/nginx/sites-available/ovpnmanager.conf"
-  render "${TPL_DIR}/nginx.conf" "$conf" \
-    PANEL_PORT "$PANEL_PORT" PANEL_WEB_PORT "$PANEL_WEB_PORT" WEB_ROOT "$WEB_ROOT" WEB_NAME "$WEB_NAME" \
-    VPN_NETWORK "$VPN_NETWORK" VPN_CIDR "$VPN_CIDR"
-
-  # 额外放行来源（PANEL_ALLOW）。必须插在 `deny all` **之前**：
-  # nginx 的 allow/deny 是"首次匹配生效"，追加到 deny all 之后等于永远不生效。
-  # 之前手工改 nginx 配置的放行会在重装/升级时被重新渲染覆盖，这里做成参数后才持久。
-  if [ -n "${PANEL_ALLOW:-}" ]; then
-    local extra_allow; extra_allow="$(mktemp)"
-    : > "$extra_allow"
-    printf '%s\n' "$PANEL_ALLOW" | tr ',' '\n' | while IFS= read -r _cidr; do
-      _cidr="$(printf '%s' "$_cidr" | tr -d '[:space:]')"
-      [ -n "$_cidr" ] && printf '    allow %s;\n' "$_cidr"
-    done > "$extra_allow"
-    if [ -s "$extra_allow" ]; then
-      awk -v f="$extra_allow" '
-        /^[[:space:]]*deny[[:space:]]+all;/ && !done {
-          while ((getline line < f) > 0) print line
-          close(f); done = 1
-        }
-        { print }
-      ' "$conf" > "${conf}.new" && mv "${conf}.new" "$conf"
-      info "已额外放行面板来源：${PANEL_ALLOW}"
-    fi
-    rm -f "$extra_allow"
-  fi
+  render_panel_nginx "$conf"
+  info "面板入口：${PANEL_SCHEME}://${PANEL_SERVER_NAME}:${PANEL_WEB_PORT}/${WEB_NAME}/（放行 ${PANEL_ALLOW_MODE}，TLS ${PANEL_TLS_MODE}）"
   if [ "$conf" = "/etc/nginx/sites-available/ovpnmanager.conf" ]; then
     ln -sfn "$conf" /etc/nginx/sites-enabled/ovpnmanager.conf
     [ -e /etc/nginx/sites-enabled/default ] && rm -f /etc/nginx/sites-enabled/default
@@ -1143,6 +1160,10 @@ deploy_panel() {
   nginx -t >/dev/null 2>&1 || die "nginx 配置校验失败，请检查 $conf"
   systemctl enable nginx >/dev/null 2>&1 || true
   systemctl restart nginx
+
+  # 把本次真正渲染用的值写进 panel.state：下次重装/升级从这里恢复（见 load_panel_state）
+  write_panel_state
+  ok "面板访问设置已记录到 ${PANEL_STATE_FILE}"
 
   # 日志轮转
   render "${TPL_DIR}/logrotate" "/etc/logrotate.d/ovpnmanager" \
@@ -1172,7 +1193,7 @@ self_check() {
     else
       printf '  %-30s %s\n' "面板就绪探针" "FAILED"; fail=1
     fi
-    if curl -fsS --max-time 10 -o /dev/null "http://127.0.0.1:${PANEL_WEB_PORT}/${WEB_NAME}/"; then
+    if curl -fsS -k --max-time 10 -o /dev/null "${PANEL_SCHEME}://127.0.0.1:${PANEL_WEB_PORT}/${WEB_NAME}/"; then
       printf '  %-30s %s\n' "前端页面（经 nginx）" "OK"
     else
       printf '  %-30s %s\n' "前端页面（经 nginx）" "FAILED"; fail=1
@@ -1191,7 +1212,7 @@ print_summary() {
   printf "  OpenVPN : %s://%s:%s  （服务：%s）\n" "$VPN_PROTO" "$ip" "$VPN_PORT" "$OVPN_SERVICE"
   printf "  客户端配置：%s/%s.ovpn\n" "$CLIENT_EXPORT_DIR" "$CLIENT_NAME"
   if [ "$PANEL_ENABLE" = "1" ]; then
-    printf "  面板     : http://%s:%s/%s/\n" "$ip" "$PANEL_WEB_PORT" "$WEB_NAME"
+    printf "  面板     : %s://%s:%s/%s/\n" "$PANEL_SCHEME" "$ip" "$PANEL_WEB_PORT" "$WEB_NAME"
     printf "             面板默认仅允许 VPN 网段访问（%s/%s）\n" "$VPN_NETWORK" "$VPN_CIDR"
   fi
   printf "${C_OK}=================================================${C_RESET}\n"
@@ -1300,6 +1321,227 @@ install_apply_helper() {
   install -d -o "$PANEL_USER" -g "$PANEL_USER" -m 0750 "${PANEL_HOME}/backend/data" 2>/dev/null || true
 
   ok "设置助手就绪：/usr/local/lib/ovpnmanager/apply-config（sudoers 已授权且不接受参数）"
+}
+
+# ---------------------------------------------------------------------------
+# 特权助手（第二个）：让面板能落地「面板设置」页改的 nginx 站点配置
+#
+# 与 apply-config **并列**，不合并：apply-config 管 server.conf（OpenVPN 服务端），
+# 本助手管 nginx 站点配置（面板入口：端口 / 域名 / 放行来源 / TLS）。
+# 分开的好处是 sudoers 里两条授权各自只够改自己那一块。
+#
+# 两者复用同一份东西：
+#   * templates/apply-validate.sh 的 candidate_file_problem()（候选文件校验）；
+#   * templates/panel-nginx.sh    的 panel_nginx_render()（nginx 渲染，安装脚本也用）。
+# 校验规则在 templates/panel-validate.sh（可脱离 root 单测，见 tests/test_panel_config.sh）。
+# ---------------------------------------------------------------------------
+install_panel_helper() {
+  step "安装面板设置助手（apply-panel-config）"
+
+  install -D -m 0644 "${TPL_DIR}/panel-validate.sh" /usr/local/lib/ovpnmanager/panel-validate.sh
+  install -D -m 0644 "${TPL_DIR}/panel-nginx.sh" /usr/local/lib/ovpnmanager/panel-nginx.sh
+  install -D -m 0755 "${TPL_DIR}/apply-panel-config.sh" /usr/local/lib/ovpnmanager/apply-panel-config
+  # 站点模板：助手重新渲染时以它为唯一来源（面板里保存设置就靠它）
+  install -D -m 0644 "${TPL_DIR}/nginx.conf" /usr/local/lib/ovpnmanager/nginx.conf.template
+  chown root:root \
+    /usr/local/lib/ovpnmanager/panel-validate.sh \
+    /usr/local/lib/ovpnmanager/panel-nginx.sh \
+    /usr/local/lib/ovpnmanager/apply-panel-config \
+    /usr/local/lib/ovpnmanager/nginx.conf.template
+  chmod 0644 /usr/local/lib/ovpnmanager/panel-validate.sh /usr/local/lib/ovpnmanager/panel-nginx.sh \
+    /usr/local/lib/ovpnmanager/nginx.conf.template
+  chmod 0755 /usr/local/lib/ovpnmanager/apply-panel-config
+
+  # nginx 站点配置文件的位置与 deploy_panel 里渲染时用的保持一致
+  local nginx_conf="/etc/nginx/conf.d/ovpnmanager.conf"
+  [ -d /etc/nginx/sites-available ] && nginx_conf="/etc/nginx/sites-available/ovpnmanager.conf"
+
+  # 自签证书目录（0700）与 nginx 配置备份目录：助手以 root 写入，这里先建好
+  mkdir -p "$STATE_DIR" "$PANEL_TLS_DIR" "$PANEL_BACKUP_DIR"
+  chown root:root "$STATE_DIR" "$PANEL_TLS_DIR" "$PANEL_BACKUP_DIR" 2>/dev/null || true
+  chmod 0755 "$STATE_DIR" 2>/dev/null || true
+  chmod 0700 "$PANEL_TLS_DIR" 2>/dev/null || true
+  chmod 0750 "$PANEL_BACKUP_DIR" 2>/dev/null || true
+
+  render "${TPL_DIR}/panel.conf.template" "${STATE_DIR}/panel.conf" \
+    NGINX_CONF "$nginx_conf" \
+    STATE_DIR "$STATE_DIR" \
+    CANDIDATE "${PANEL_HOME}/backend/data/panel.candidate" \
+    PANEL_USER "$PANEL_USER" \
+    WEB_ROOT "$WEB_ROOT" \
+    WEB_NAME "$WEB_NAME" \
+    BACKUP_DIR "$PANEL_BACKUP_DIR" \
+    TLS_DIR "$PANEL_TLS_DIR" \
+    WAIT_RELOAD_SECONDS "10" \
+    PANEL_PORT "$PANEL_PORT" \
+    NGINX_SERVICE "nginx" \
+    PANEL_SERVICE "ovpnmanager" \
+    SERVER_CONF "$SERVER_CONF" \
+    NGINX_TEMPLATE "/usr/local/lib/ovpnmanager/nginx.conf.template" \
+    BACKUP_KEEP "5"
+  chown root:root "${STATE_DIR}/panel.conf"
+  chmod 0644 "${STATE_DIR}/panel.conf"
+
+  bash -n /usr/local/lib/ovpnmanager/apply-panel-config \
+    || die "apply-panel-config 语法校验失败（${TPL_DIR}/apply-panel-config.sh 是否有误？）"
+  bash -n /usr/local/lib/ovpnmanager/panel-validate.sh \
+    || die "panel-validate.sh 语法校验失败"
+  bash -n /usr/local/lib/ovpnmanager/panel-nginx.sh \
+    || die "panel-nginx.sh 语法校验失败"
+
+  ok "面板设置助手就绪：/usr/local/lib/ovpnmanager/apply-panel-config（sudoers 已授权且不接受参数）"
+}
+
+# ---------------------------------------------------------------------------
+# 面板自身的访问设置：读 panel.state（面板里改过的值），并据此渲染 nginx
+#
+# **这是"升级不冲掉用户改动"的关键**：重装 / --update 都会重新渲染 nginx，
+# 若只用环境变量/默认值，用户在面板里改过的端口就会静默退回 5698。
+# 所以渲染前先读 panel.state，把值覆盖到 PANEL_WEB_PORT / PANEL_SERVER_NAME /
+# PANEL_ALLOW_* / PANEL_TLS_* 上；读取时逐项校验，任何一项不合法就退回默认值
+# （宁可回到默认也不能把 nginx 写成起不来的样子）。
+# ---------------------------------------------------------------------------
+load_panel_state() {
+  PANEL_STATE_LOADED=0
+  if [ ! -f "$PANEL_STATE_FILE" ]; then
+    info "未找到 ${PANEL_STATE_FILE}，面板访问设置使用环境变量/默认值"
+    derive_panel_allow
+    PANEL_SCHEME="http"
+    [ "$PANEL_TLS_MODE" = "off" ] || PANEL_SCHEME="https"
+    return 0
+  fi
+
+  local value applied=0
+  value="$(panel_state_value "$PANEL_STATE_FILE" PANEL_LISTEN_PORT)"
+  if [ -n "$value" ] && [ -z "$(panel_port_problem "$value" "$VPN_PORT")" ]; then
+    PANEL_WEB_PORT="$value"; applied=1
+  elif [ -n "$value" ]; then
+    warn "panel.state 里的监听端口 ${value} 不合法，已忽略"
+  fi
+
+  value="$(panel_state_value "$PANEL_STATE_FILE" PANEL_SERVER_NAME)"
+  if [ -n "$value" ] && [ -z "$(panel_server_name_problem "$value")" ]; then
+    PANEL_SERVER_NAME="$value"
+  elif [ -n "$value" ]; then
+    warn "panel.state 里的绑定域名 ${value} 不合法，已忽略"
+  fi
+
+  value="$(panel_state_value "$PANEL_STATE_FILE" PANEL_ALLOW_MODE)"
+  if [ -n "$value" ] && [ -z "$(panel_allow_problem "$value" "")" ]; then
+    PANEL_ALLOW_MODE="$value"
+  elif [ -n "$value" ]; then
+    warn "panel.state 里的放行来源模式 ${value} 不合法，已忽略"
+  fi
+
+  value="$(panel_state_value "$PANEL_STATE_FILE" PANEL_ALLOW_CIDRS)"
+  if [ "$PANEL_ALLOW_MODE" = "custom" ]; then
+    if [ -z "$(panel_allow_problem custom "$value")" ]; then
+      PANEL_ALLOW_CIDRS="$value"
+    else
+      warn "panel.state 里的自定义放行来源不合法，已退回默认（仅 VPN 网段）"
+      PANEL_ALLOW_MODE="vpn"; PANEL_ALLOW_CIDRS=""
+    fi
+  else
+    PANEL_ALLOW_CIDRS=""
+  fi
+
+  value="$(panel_state_value "$PANEL_STATE_FILE" PANEL_TLS_MODE)"
+  if [ -n "$value" ] && [ -z "$(panel_tls_problem "$value" "" "")" ]; then
+    PANEL_TLS_MODE="$value"
+  elif [ -n "$value" ]; then
+    warn "panel.state 里的 TLS 模式 ${value} 不合法，已按 off 处理"
+    PANEL_TLS_MODE="off"
+  fi
+
+  if [ "$PANEL_TLS_MODE" = "existing" ]; then
+    PANEL_TLS_CERT="$(panel_state_value "$PANEL_STATE_FILE" PANEL_TLS_CERT)"
+    PANEL_TLS_KEY="$(panel_state_value "$PANEL_STATE_FILE" PANEL_TLS_KEY)"
+    if [ -n "$(panel_tls_problem existing "$PANEL_TLS_CERT" "$PANEL_TLS_KEY")" ]; then
+      # 证书被删/被替换/权限变了都不该让整个安装失败：退回 off 并提示用户重配
+      warn "panel.state 里的 TLS 证书不可用（$(panel_tls_problem existing "$PANEL_TLS_CERT" "$PANEL_TLS_KEY")），本次按 off 渲染"
+      PANEL_TLS_MODE="off"; PANEL_TLS_CERT=""; PANEL_TLS_KEY=""
+    fi
+  elif [ "$PANEL_TLS_MODE" = "selfsigned" ]; then
+    # 自签证书由助手生成在 TLS_DIR；这里只检查它还在不在
+    if [ -s "${PANEL_TLS_DIR}/panel-selfsigned.crt" ] && [ -s "${PANEL_TLS_DIR}/panel-selfsigned.key" ]; then
+      PANEL_TLS_CERT="${PANEL_TLS_DIR}/panel-selfsigned.crt"
+      PANEL_TLS_KEY="${PANEL_TLS_DIR}/panel-selfsigned.key"
+    else
+      warn "panel.state 说用自签证书，但 ${PANEL_TLS_DIR} 里没有证书，本次按 off 渲染（可在面板里重新开启）"
+      PANEL_TLS_MODE="off"; PANEL_TLS_CERT=""; PANEL_TLS_KEY=""
+    fi
+  else
+    PANEL_TLS_CERT=""; PANEL_TLS_KEY=""
+  fi
+
+  [ -z "$PANEL_ALLOW_MODE" ] && derive_panel_allow
+
+  PANEL_SCHEME="http"
+  [ "$PANEL_TLS_MODE" = "off" ] || PANEL_SCHEME="https"
+
+  if [ "$applied" = "1" ]; then
+    info "已从 ${PANEL_STATE_FILE} 恢复面板访问设置：端口 ${PANEL_WEB_PORT}，域名 ${PANEL_SERVER_NAME}，放行 ${PANEL_ALLOW_MODE}，TLS ${PANEL_TLS_MODE}"
+  fi
+  PANEL_STATE_LOADED=1
+  return 0
+}
+
+# 没有 panel.state 时的放行来源：保持历史行为
+#   * 给了 PANEL_ALLOW：custom = VPN 网段 + 用户给的来源（旧版就是把它们追加进去的）
+#   * 没给：vpn（只放行 VPN 网段与本机）
+derive_panel_allow() {
+  if [ -n "${PANEL_ALLOW_MODE:-}" ]; then
+    return 0
+  fi
+  if [ -n "${PANEL_ALLOW:-}" ]; then
+    local extra; extra="$(printf '%s' "$PANEL_ALLOW" | tr -d '[:space:]')"
+    if [ -n "$extra" ]; then
+      PANEL_ALLOW_MODE="custom"
+      PANEL_ALLOW_CIDRS="${VPN_NETWORK}/${VPN_CIDR},${extra}"
+      info "按 PANEL_ALLOW 推导放行来源：custom（${PANEL_ALLOW_CIDRS}）"
+      return 0
+    fi
+  fi
+  PANEL_ALLOW_MODE="vpn"
+  PANEL_ALLOW_CIDRS=""
+  return 0
+}
+
+# 用与 root 助手**完全相同**的渲染实现生成站点配置（templates/panel-nginx.sh）
+render_panel_nginx() { # render_panel_nginx <目标文件>
+  local dest="$1"
+  [ -n "$PANEL_ALLOW_MODE" ] || derive_panel_allow
+  if ! PANEL_LISTEN_PORT="$PANEL_WEB_PORT" \
+       PANEL_SERVER_NAME="${PANEL_SERVER_NAME:-_}" \
+       PANEL_ALLOW_MODE="$PANEL_ALLOW_MODE" \
+       PANEL_ALLOW_CIDRS="$PANEL_ALLOW_CIDRS" \
+       PANEL_TLS_MODE="$PANEL_TLS_MODE" \
+       PANEL_TLS_CERT="$PANEL_TLS_CERT" \
+       PANEL_TLS_KEY="$PANEL_TLS_KEY" \
+       PANEL_PORT="$PANEL_PORT" \
+       VPN_CIDR="${VPN_NETWORK}/${VPN_CIDR}" \
+       WEB_ROOT="$WEB_ROOT" \
+       WEB_NAME="$WEB_NAME" \
+       panel_nginx_render "${TPL_DIR}/nginx.conf" "$dest"; then
+    die "渲染 ${dest} 失败（面板访问设置不合法？）"
+  fi
+  return 0
+}
+
+# 把本次实际渲染用的值写进 panel.state：下次重装/升级就从这个文件恢复
+write_panel_state() {
+  mkdir -p "$STATE_DIR"
+  panel_write_state "$PANEL_STATE_FILE" \
+    PANEL_LISTEN_PORT "$PANEL_WEB_PORT" \
+    PANEL_SERVER_NAME "${PANEL_SERVER_NAME:-_}" \
+    PANEL_ALLOW_MODE "${PANEL_ALLOW_MODE:-vpn}" \
+    PANEL_ALLOW_CIDRS "${PANEL_ALLOW_CIDRS:-}" \
+    PANEL_TLS_MODE "${PANEL_TLS_MODE:-off}" \
+    PANEL_TLS_CERT "${PANEL_TLS_CERT:-}" \
+    PANEL_TLS_KEY "${PANEL_TLS_KEY:-}"
+  chown root:root "$PANEL_STATE_FILE" 2>/dev/null || true
+  chmod 0644 "$PANEL_STATE_FILE" 2>/dev/null || true
+  return 0
 }
 
 # ---------------------------------------------------------------------------
