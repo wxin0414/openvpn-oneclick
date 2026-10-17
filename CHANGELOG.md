@@ -4,6 +4,35 @@
 
 关于版本号：仓库历史中 `VERSION.txt` 由 `1.2.2` 直接跳到 `1.2.4`，没有 1.2.3 的独立提交，因此这里没有 `[1.2.3]` 条目。1.2.2 与 1.2.3 都因下列安装缺陷无法在 Debian 12 上完成安装，修复集中在 1.2.4。
 
+## [1.4.2] — 2026-10-18
+
+Docker：修掉一个"构建成功、运行必坏"的缺陷；并记录一次我把生产配置覆盖的事故。
+
+### 修复 — 镜像里助手文件名带 .sh，运行期永远找不到
+
+`Dockerfile` 原来用 `COPY templates/apply-config.sh ... /usr/local/lib/ovpnmanager/`，
+装出来的是 `apply-config.sh`；但面板的 `APPLY_CONFIG_BIN` 与 `/etc/sudoers.d/ovpnmanager`
+都指向**不带后缀**的 `/usr/local/lib/ovpnmanager/apply-config`。
+
+后果：镜像能构建成功，**运行时所有"改配置"功能静默失效**（面板找不到助手、sudoers 规则也匹配不上）。
+
+改法：`COPY templates/ /tmp/templates/` 后用 `install -m 0755 "$name.sh" ".../$name"` 逐个改名安装，
+与宿主机安装脚本的行为一致。已在 `verify-offline.sh` 里加了三条静态断言防止复发：
+安装循环引用的助手必须存在于 `templates/`；sudoers 放行的每个路径必须有对应安装名；
+面板源码里期望的路径必须与镜像安装名一致。
+
+### 事故记录 — 我覆盖了生产 `server.conf`
+
+`verify-offline.sh` 早期版本用 `sed -n '/^log() {/,/^}$/p'` 从 entrypoint 里抽函数，
+这个范围会一路吞到很远的 `}`，把脚本顶部的 `OPENVPN_DIR=/etc/openvpn` 也 `eval` 进来，
+于是 `SERVER_CONF` 指向了**真实路径**；脚本接着 `rm -f` 并生成 31 行模板，覆盖了生产配置。
+
+发现与恢复：OpenVPN 进程仍持有旧配置所以在跑，但重启就会读到模板。已从最新
+`server.conf.bak.20261018-002838`（67 行、托管块完整）恢复、重启，并通过自检 11/11。
+
+改法：① 用 `awk` 精确圈定函数体（`/^init_conf\(\) \{/{f=1} f{print} f&&/^\}$/{exit}`）；
+② 在**写入之前**加安全闸门——`SERVER_CONF` 不落在临时目录就直接 `exit 2`。
+教训：会写文件的自检脚本必须"先拒绝、再执行"，事后断言来不及。
 ## [1.4.1] — 2026-10-18
 
 Docker：补上"不需要 Docker 也能做的验证"。

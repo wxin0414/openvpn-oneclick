@@ -27,6 +27,15 @@ log() { :; }   # entrypoint 的 log 函数，抽出来单跑时用空实现
 eval "$(sed -n '/^log() {/,/^}$/p' "$REPO_DIR/docker/entrypoint.sh")"
 eval "$(sed -n '/^init_conf() {/,/^}$/p' "$REPO_DIR/docker/entrypoint.sh")"
 mkdir -p "$OPENVPN_DIR"
+# 安全闸门：必须在**写入之前**确认目标落在临时目录里。
+# 教训：早先版本先 rm -f 再生成、事后才断言，结果一次跑偏直接把真机
+# /etc/openvpn/server.conf 覆盖成了模板（已从 .bak 恢复）。任何"会写文件"的
+# 自检脚本都必须先拒绝、再执行。
+case "$SERVER_CONF" in
+  "$W"/*) : ;;
+  *) echo "  [ABORT] SERVER_CONF=$SERVER_CONF 不在临时目录 $W 下，拒绝继续"; exit 2 ;;
+esac
+rm -f "$SERVER_CONF"
 init_conf && ok "生成 $SERVER_CONF（$(wc -l < "$SERVER_CONF") 行）" || bad "生成失败"
 
 echo "=== 2) 用 openvpn 的选项表核对（含 push 载荷） ==="
@@ -95,6 +104,36 @@ PY
 else
   echo "  [SKIP] 没有 PyYAML"
 fi
+
+echo "=== 6) Dockerfile 静态审查（构建前就能发现的坑） ==="
+DF="$REPO_DIR/docker/Dockerfile"
+# 6a) 安装循环里的每个助手都必须真实存在于 templates/
+missing=0
+for name in $(sed -n '/for name in/,/; do/p' "$DF" | grep -oE '[a-z][a-z0-9-]+' | grep -vE '^(for|name|in|do)$'); do
+  [ -f "$REPO_DIR/templates/$name.sh" ] || { bad "Dockerfile 要装 $name.sh，但 templates 里没有"; missing=$((missing+1)); }
+done
+[ "$missing" -eq 0 ] && ok "安装循环引用的助手都在 templates/ 里"
+
+# 6b) sudoers 里放行的每个路径，必须由安装循环产出（名字不带 .sh）
+sg=0
+for path in $(grep -oE '/usr/local/lib/ovpnmanager/[a-z-]+' "$DF" | sort -u); do
+  base="${path##*/}"
+  grep -qE "(^|[[:space:]])$base([[:space:]]|\\\\)" "$DF" || { bad "sudoers 放行 $path，但安装循环没有 $base"; sg=$((sg+1)); }
+done
+[ "$sg" -eq 0 ] && ok "sudoers 放行的脚本都按无后缀名安装"
+
+# 6c) 面板期望的助手路径必须与镜像一致
+EXPECTED="$(grep -rhoE '/usr/local/lib/ovpnmanager/[a-z-]+' "$PANEL_BACKEND/app/services/server_conf_writer.py" 2>/dev/null | head -1)"
+if [ -n "$EXPECTED" ]; then
+  base="${EXPECTED##*/}"
+  grep -qE "(^|[[:space:]])$base([[:space:]]|\\\\)" "$DF" && ok "面板期望的 $EXPECTED 与镜像安装名一致" || bad "面板期望 $EXPECTED，但镜像安装名不一致"
+fi
+
+# 6d) compose 端口必须与 EXPOSE 对齐
+for p in $(grep -oE '^EXPOSE [0-9]+/[a-z]+' "$DF" | awk '{print $2}'); do
+  num="${p%%/*}"
+  grep -q "\"$num:" "$REPO_DIR/docker-compose.yml" && ok "EXPOSE $p 在 compose 里有映射" || bad "EXPOSE $p 未在 compose 里映射"
+done
 
 printf '\n==== 离线验证：通过 %d，失败 %d ====\n' "$pass" "$fail"
 echo "注意：镜像构建与容器运行期行为需要 Docker 守护进程，本脚本不覆盖。"

@@ -20,14 +20,22 @@ RUN apt-get update \
 COPY panel/ovpnmanager-panel.tar.gz /tmp/panel.tar.gz
 COPY docker/nginx.conf /etc/nginx/nginx.conf
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
-COPY templates/apply-config.sh templates/apply-validate.sh templates/apply-panel-config.sh \
-     templates/panel-validate.sh templates/panel-nginx.sh templates/net-control.sh \
-     templates/service-control.sh templates/backup-now.sh templates/restore-backup.sh \
-     /usr/local/lib/ovpnmanager/
-COPY templates/apply-dispatch.sh /usr/local/lib/ovpnmanager/apply-dispatch
+# 助手必须按**不带 .sh 后缀**的名字安装：面板里的 APPLY_CONFIG_BIN 与 sudoers 规则
+# 都指向 /usr/local/lib/ovpnmanager/apply-config 这类路径。直接 COPY *.sh 进去会让
+# 镜像构建成功，但运行时"找不到助手"——所有改配置功能静默失效。
+COPY templates/ /tmp/templates/
 
-RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/lib/ovpnmanager/* \
- && useradd --system --create-home --shell /usr/sbin/nologin ovpnpanel
+RUN set -eux; \
+    cd /tmp/templates; \
+    for name in apply-config apply-validate apply-panel-config panel-validate \
+                panel-nginx net-control service-control backup-now restore-backup \
+                apply-dispatch; do \
+      install -m 0755 "$name.sh" "/usr/local/lib/ovpnmanager/$name"; \
+    done; \
+    rm -rf /tmp/templates; \
+    chmod +x /usr/local/bin/entrypoint.sh; \
+    useradd --system --create-home --shell /usr/sbin/nologin ovpnpanel; \
+    ls -l /usr/local/lib/ovpnmanager/
 
 # 容器里没有 socket 激活，用 sudo 通道：只允许调用那几个固定脚本，且不接受参数
 RUN printf '%s\n' \
