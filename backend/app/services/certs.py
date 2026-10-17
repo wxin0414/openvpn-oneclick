@@ -13,6 +13,7 @@ from app.core.config import get_settings
 from app.models.client import Client
 from app.schemas.certificate import CertificateCreate, CertificateUpdate
 from app.services import server_conf
+from app.services.names import ensure_safe_name
 from app.utils.time import utcnow_naive
 
 logger = logging.getLogger(__name__)
@@ -87,6 +88,8 @@ def build_client_cert(
     说明：EasyRSA 是同步子进程（1~5 秒起），这个调用仍在请求内完成。前端对这类
     操作使用更长的超时（见 frontend/src/api/clients.js 的 LONG_TIMEOUT）。
     """
+    # 兜底：这个名字会拼进 pki/ 路径并作为 easyrsa 参数（防 .. 与 -开头 的参数注入）
+    ensure_safe_name(client.common_name)
     cert_path = settings.easyrsa_path / "pki" / "issued" / f"{client.common_name}.crt"
     key_path = settings.easyrsa_path / "pki" / "private" / f"{client.common_name}.key"
     req_path = settings.easyrsa_path / "pki" / "reqs" / f"{client.common_name}.req"

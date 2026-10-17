@@ -25,7 +25,7 @@
 
 set -Eeuo pipefail
 
-SCRIPT_VERSION="1.4.5"
+SCRIPT_VERSION="1.4.6"
 
 # ---------------------------------------------------------------------------
 # 下载源（可用环境变量覆盖）
@@ -235,6 +235,21 @@ ovpn-oneclick —— OpenVPN 服务端 + 管理面板 一键安装脚本
 
 安装完成后可再次运行本脚本管理客户端，或直接使用 Web 面板。
 EOF
+}
+
+# 客户端名称白名单校验：这个名字会拼进 pki/ 路径与 easyrsa 参数，--addclient 是
+# root 执行，必须在入口就挡住 ".." 与 "-" 开头（否则是路径穿越/参数注入）。
+validate_client_name() {
+  local name="$1"
+  case "$name" in
+    '') die "客户端名称不能为空" ;;
+    -*) die "客户端名称不能以 - 开头：$name" ;;
+    *..*) die "客户端名称不能包含 ..：$name" ;;
+    */*|*\\*) die "客户端名称不能包含路径分隔符：$name" ;;
+  esac
+  if ! printf '%s' "$name" | grep -qE '^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$'; then
+    die "客户端名称不合法：$name（只允许字母、数字、下划线、点、连字符，最长 64）"
+  fi
 }
 
 require_value() { # require_value <选项名> <值>
@@ -2171,9 +2186,9 @@ main() {
       list_clients
       exit 0
       ;;
-    addclient)     detect_os >/dev/null 2>&1 || true; resolve_openvpn_layout; add_client "$CLIENT_NAME"; print_summary; exit 0 ;;
-    revokeclient)  detect_os >/dev/null 2>&1 || true; resolve_openvpn_layout; revoke_client "$CLIENT_NAME"; exit 0 ;;
-    exportclient)  detect_os >/dev/null 2>&1 || true; resolve_openvpn_layout; export_client "$CLIENT_NAME"; exit 0 ;;
+    addclient)     validate_client_name "$CLIENT_NAME"; detect_os >/dev/null 2>&1 || true; resolve_openvpn_layout; add_client "$CLIENT_NAME"; print_summary; exit 0 ;;
+    revokeclient)  validate_client_name "$CLIENT_NAME"; detect_os >/dev/null 2>&1 || true; resolve_openvpn_layout; revoke_client "$CLIENT_NAME"; exit 0 ;;
+    exportclient)  validate_client_name "$CLIENT_NAME"; detect_os >/dev/null 2>&1 || true; resolve_openvpn_layout; export_client "$CLIENT_NAME"; exit 0 ;;
     uninstall)     detect_os; uninstall; exit 0 ;;
     check-update)  check_update; exit $? ;;
     update)        do_update; exit 0 ;;

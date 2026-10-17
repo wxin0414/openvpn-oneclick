@@ -143,6 +143,8 @@ sudo: The "no new privileges" flag is set, which prevents sudo from running as r
 - `/etc/sudoers.d/ovpnmanager`（`0440`，`visudo -c` 校验）只放行固定的几条 `systemctl`
   子命令与一个**不接受参数**的助手脚本
 - 一次性下载链接：库中只存令牌的 sha256，并发兑换用条件更新保证只有一次成功
+- 客户端名称做白名单校验（`app/services/names.py`）：它要拼进 `pki/`、`ccd/` 路径并作为 easyrsa 参数，
+  因此禁止 `/`、`\`、`..` 与 `-` 开头（实测未校验时可写到 CCD 目录之外）
 - 只读账号：全局中间件拦截 `viewer` 的所有 `POST/PUT/PATCH/DELETE`（放行登录接口）
 - `SECRET_KEY` 只用于签发登录令牌；换掉会让所有已登录会话失效，不影响 VPN
 

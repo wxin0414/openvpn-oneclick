@@ -1,13 +1,22 @@
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from app.services.names import NAME_PATTERN, ensure_safe_name
 
 
 class ClientBase(BaseModel):
-    name: str = Field(..., max_length=100)
-    common_name: str = Field(..., max_length=100)
+    name: str = Field(..., max_length=64, pattern=NAME_PATTERN)
+    common_name: str = Field(..., max_length=64, pattern=NAME_PATTERN)
     fixed_ip: str | None = Field(default=None, max_length=50)
     routes: str | None = Field(default=None, max_length=500)
+
+    @field_validator("name", "common_name")
+    @classmethod
+    def _check_name(cls, value: str) -> str:
+        # pattern 只能表达字符集（Rust 正则不支持前瞻），"不能含 .." 在这里拦
+        ensure_safe_name(value, "客户端名称")
+        return value
 
 
 class ClientCreate(ClientBase):

@@ -4,6 +4,53 @@
 
 关于版本号：仓库历史中 `VERSION.txt` 由 `1.2.2` 直接跳到 `1.2.4`，没有 1.2.3 的独立提交，因此这里没有 `[1.2.3]` 条目。1.2.2 与 1.2.3 都因下列安装缺陷无法在 Debian 12 上完成安装，修复集中在 1.2.4。
 
+## [1.4.6] — 2026-10-18
+
+安全修复：客户端名称（`common_name`）缺少校验，可导致**路径穿越写文件**与**参数注入**。
+
+### 漏洞
+
+`common_name` 只限了长度（`max_length=100`），而这个值会**直接拼进文件路径**并作为
+EasyRSA 的命令行参数：
+
+```text
+pki/issued/<cn>.crt、pki/private/<cn>.key、ccd/<cn>     easyrsa build-client-full <cn>
+```
+
+实测（本地复现，未在生产环境触发）：`CCD_PATH=/tmp/x` 时把 `common_name` 设为
+`../../escaped-by-cn`，`ccd.write_ccd()` 返回的路径是 `/tmp/x/../../escaped-by-cn`
+且**文件确实被创建在 CCD 目录之外两层的可写目录**。即：任何能创建客户端的账号，都能
+以面板用户身份在它可写的范围内写任意路径。另外以 `-` 开头的名字会被 easyrsa 当成选项。
+
+### 修复
+
+新增 `backend/app/services/names.py` 作为**唯一校验入口**，并在四层各设一道：
+
+| 层 | 位置 | 作用 |
+| --- | --- | --- |
+| 请求校验 | `schemas/client.py` 的 `pattern` + `field_validator` | 非法名直接 422 |
+| 路径拼接 | `services/ccd.py`、`services/certs.py` 的 `ensure_safe_name()` | 兜底，绕过 API 也不会写出去 |
+| 命令行 | `install.sh` 的 `validate_client_name()` | `--addclient` 等以 root 执行，入口挡住 |
+| 规则 | `NAME_PATTERN` | 前后端与助手共用同一套 |
+
+**规则刻意宽到能用**：允许中文、字母、数字、空格等正常字符；只禁 `/`、`\`、NUL/控制字符、
+连续的 `..`、以 `-` 或 `.` 开头、纯点号、长度 > 64。即"文件名安全 + 不是命令行选项"
+两条底线，而不是把字符集收窄成 ASCII（那会让中文客户端名直接不可用，属于过度限制）。
+
+> 踩过：最初把 `(?!.*\.\.)` 写进 pydantic 的 `pattern`，它的正则引擎是 Rust 的、
+> **不支持前瞻**，直接报 `look-around is not supported`。改为 pattern 只表达字符集、
+> `..` 交给 `field_validator`。
+
+### 顺带修掉
+
+- **登录限流表无上限增长**：键是"用户名@IP"，攻击者用随机用户名可把两张 dict 刷到内存耗尽。
+  加了 `_MAX_KEYS=4096` 与过期清理。（跨 IP 锁死管理员不成立——键含 IP，已验证。）
+
+### 复核后确认不是问题（避免误报）
+
+- `DEPLOY_ENV` 模板里就是 `PROD`，线上 `/docs`、`/api/openapi.json`、`/redoc` 实测都是 **404**
+- JWT 带 `exp`；登录有限速且键含 IP，无法从其他 IP 锁死管理员
+- 前端 `localStorage` 存 token 是已知取舍（无 `v-html`，XSS 面很小），未改动
 ## [1.4.5] — 2026-10-18
 
 文档重整 + 修复页脚版本号永不更新。

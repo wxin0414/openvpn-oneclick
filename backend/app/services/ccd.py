@@ -27,6 +27,8 @@ from __future__ import annotations
 import logging
 from ipaddress import ip_address, ip_network
 from pathlib import Path
+
+from app.services.names import ensure_safe_name
 from typing import Iterable
 
 from app.core.config import get_settings
@@ -77,6 +79,8 @@ def _ifconfig_push(fixed_ip: str, conf: server_conf.ServerConf) -> str:
 
 def write_ccd(client: Client, *, fixed_ip: str | None, routes: Iterable[str] | None = None) -> Path:
     """Write CCD file for client with optional static IP and per-client routes."""
+    # 兜底：即使上层校验被绕过，也绝不把 .. 拼进路径（实测能写到 CCD 目录之外）
+    ensure_safe_name(client.common_name)
     ccd_dir = Path(settings.ccd_path)
     created_dir = not ccd_dir.exists()
     ccd_dir.mkdir(parents=True, exist_ok=True)
