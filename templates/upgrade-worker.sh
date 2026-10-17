@@ -54,13 +54,15 @@ if [ -z "$INSTALLER" ] || [ ! -f "$INSTALLER" ]; then
   exit 1
 fi
 
-if /bin/bash "$INSTALLER" --update --yes >> "$LOG_FILE" 2>&1; then
+# 注意：不能用 `if cmd; then ...; fi` 之后再取 $? —— if 语句在条件为假时本身返回 0，
+# 于是失败会被上报成"返回 0"（实测踩过）。这里直接取命令自己的退出码。
+/bin/bash "$INSTALLER" --update --yes >> "$LOG_FILE" 2>&1
+rc=$?
+if [ "$rc" -eq 0 ]; then
   write_state ok ""
   echo "=== upgrade end ok $(date -u +%Y-%m-%dT%H:%M:%SZ) ===" >> "$LOG_FILE" 2>/dev/null || true
   exit 0
 fi
-
-rc=$?
 write_state failed "安装器 --update 返回 ${rc}，详见 ${LOG_FILE}"
 echo "=== upgrade end failed rc=${rc} ===" >> "$LOG_FILE" 2>/dev/null || true
 exit "$rc"

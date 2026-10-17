@@ -44,8 +44,26 @@ mkdir -p "$WORK_DIR" || fail "无法创建工作目录 $WORK_DIR"
 chmod 0700 "$WORK_DIR" 2>/dev/null || true
 tmp_installer="${WORK_DIR}/install.sh"
 
-if ! curl -fsSL --max-time 600 -o "$tmp_installer" "$INSTALLER_URL" 2>>"$LOG_FILE"; then
-  fail "下载安装脚本失败（$INSTALLER_URL）"
+# 优先用安装时留下的本地副本 —— 很多机器（含本项目的实测服务器）出网到
+# raw.githubusercontent.com 并不稳定，实测出现过 curl: (28) SSL connection timeout。
+# 有本地副本就完全不需要联网；只有副本缺失时才回退到下载，且超时缩短到 120 秒，
+# 让失败尽快暴露，而不是卡住面板的助手调用。
+# 注意：**不要**把安装器复制到 /var/tmp。apply@.service 带 PrivateTmp=yes，
+# 该服务的 /var/tmp 是私有的，服务一退出副本就消失，后台工作进程必然找不到
+# ——实测踩过：状态显示"找不到已下载的安装脚本"。
+# 直接用持久路径，完全不复制。
+local_installer="${LOCAL_INSTALLER:-/usr/local/lib/ovpnmanager/install.sh}"
+if [ -f "$local_installer" ] && grep -q 'SCRIPT_VERSION=' "$local_installer" 2>/dev/null; then
+  tmp_installer="$local_installer"
+  echo "使用本地安装器：$local_installer" >>"$LOG_FILE"
+else
+  # 没有本地副本才下载，且落到**持久目录**（同样不能用 /var/tmp）
+  tmp_installer="${PERSIST_DIR:-/etc/ovpn-oneclick}/upgrade-install.sh"
+  if ! curl -fsSL --max-time 120 -o "$tmp_installer" "$INSTALLER_URL" 2>>"$LOG_FILE"; then
+    rm -f "$tmp_installer"
+    fail "本地没有安装器副本，且下载失败（$INSTALLER_URL，可能出网受限）"
+  fi
+  chmod 0755 "$tmp_installer"
 fi
 if ! grep -q 'SCRIPT_VERSION=' "$tmp_installer" 2>/dev/null; then
   rm -f "$tmp_installer"

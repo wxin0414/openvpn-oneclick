@@ -13,7 +13,11 @@ ExecStart=/usr/local/lib/ovpnmanager/apply-dispatch
 
 User=root
 Group=root
-PrivateTmp=yes
+# 不要加 PrivateTmp=yes。升级走的是"服务里派生一个脱离会话的后台进程"，
+# 而 PrivateTmp 会让该服务的 /tmp 与 /var/tmp 成为私有 tmpfs —— 服务一退出，
+# 目录就消失，仍在运行的后台进程执行 mktemp 时直接失败（实测：
+# mktemp: failed to create file via template '/tmp/tmp.XXXXXXXXXX'）。
+# 这个助手本来就是 root 且只按白名单动作执行，不需要靠私有 tmp 隔离。
 NoNewPrivileges=no
 # 客户端不发数据就一直挂着连接时，由这里兜底杀掉
 TimeoutStartSec=60

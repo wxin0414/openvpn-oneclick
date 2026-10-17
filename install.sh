@@ -1375,6 +1375,10 @@ install -D -m 0755 "${TPL_DIR}/apply-dispatch.sh" /usr/local/lib/ovpnmanager/app
   install -D -m 0755 "${TPL_DIR}/self-update.sh" /usr/local/lib/ovpnmanager/self-update
   # 升级后台工作进程（独立脚本 + 环境变量传参，不做字符串拼接）
   install -D -m 0755 "${TPL_DIR}/upgrade-worker.sh" /usr/local/lib/ovpnmanager/upgrade-worker
+  # 把安装器自身留一份：在线升级用它，避免每次都要联网下载（出网不稳时会失败）
+  if [ -f "$0" ]; then
+    install -D -m 0755 "$0" /usr/local/lib/ovpnmanager/install.sh || true
+  fi
 render "${TPL_DIR}/apply.socket" /etc/systemd/system/apply.socket PANEL_USER "$PANEL_USER"
 install -D -m 0644 "${TPL_DIR}/apply@.service" /etc/systemd/system/apply@.service
 systemctl daemon-reload >/dev/null 2>&1 || true
