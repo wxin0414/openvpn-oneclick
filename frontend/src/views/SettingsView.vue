@@ -186,17 +186,17 @@
             <h2 class="section-card__title">性能</h2>
           </div>
           <el-form-item label="MSS 修正 (mssfix)" required>
-            <el-input-number v-model="form.mssfix" :min="0" :max="65535" :step="1" controls-position="right" />
+            <el-input-number v-model="form.mssfix" :min="0" :max="MSSFIX_MAX" :step="1" controls-position="right" />
             <div v-if="errors.mssfix" class="field-tip err">{{ errors.mssfix }}</div>
-            <div v-else class="field-tip">0-65535，用于避免分片，常见值 1420。</div>
+            <div v-else class="field-tip">0-1500，用于避免分片，常见值 1420。</div>
           </el-form-item>
           <el-form-item label="发送缓冲区 (sndbuf)" required>
-            <el-input-number v-model="form.sndbuf" :min="0" :max="16777216" :step="1024" controls-position="right" />
+            <el-input-number v-model="form.sndbuf" :min="0" :max="BUFFER_MAX" :step="1024" controls-position="right" />
             <div v-if="errors.sndbuf" class="field-tip err">{{ errors.sndbuf }}</div>
             <div v-else class="field-tip">字节，默认 393216。</div>
           </el-form-item>
           <el-form-item label="接收缓冲区 (rcvbuf)" required>
-            <el-input-number v-model="form.rcvbuf" :min="0" :max="16777216" :step="1024" controls-position="right" />
+            <el-input-number v-model="form.rcvbuf" :min="0" :max="BUFFER_MAX" :step="1024" controls-position="right" />
             <div v-if="errors.rcvbuf" class="field-tip err">{{ errors.rcvbuf }}</div>
             <div v-else class="field-tip">字节，默认 393216。</div>
           </el-form-item>
@@ -221,7 +221,7 @@
               v-if="limitMaxClients"
               v-model="form.max_clients"
               :min="1"
-              :max="65535"
+              :max="MAX_CLIENTS_MAX"
               :step="1"
               controls-position="right"
               class="inline-number"
@@ -340,7 +340,12 @@ const TOPOLOGIES = [
 ];
 
 // 缓冲区上限：OpenVPN 的 sndbuf/rcvbuf 是普通整数，这里只做防呆上限（16 MiB）。
-const BUFFER_MAX = 16777216;
+// 数值上限必须与后端 server_conf.py 的 validate_editable 完全一致：
+// 后端 mssfix 是 0-1500、其余数值项是 0-10485760。前端写宽了，页面就能
+// 提交出必然被 400 拒绝的值，用户只看到「保存失败」而不知道错在哪。
+const MSSFIX_MAX = 1500;
+const BUFFER_MAX = 10485760;
+const MAX_CLIENTS_MAX = 10485760;
 const MAX_ROUTES = 64;
 
 const loading = ref(false);
@@ -511,8 +516,8 @@ const validate = () => {
     errors.keepalive = "keepalive 必须是两个整数，如 “10 120”";
     messages.push(errors.keepalive);
   }
-  if (!isIntegerInRange(form.mssfix, 0, 65535)) {
-    errors.mssfix = "mssfix 必须是 0-65535 的整数";
+  if (!isIntegerInRange(form.mssfix, 0, MSSFIX_MAX)) {
+    errors.mssfix = `mssfix 必须是 0-${MSSFIX_MAX} 的整数`;
     messages.push(errors.mssfix);
   }
   if (!isIntegerInRange(form.sndbuf, 0, BUFFER_MAX)) {
@@ -523,8 +528,8 @@ const validate = () => {
     errors.rcvbuf = `rcvbuf 必须是 0-${BUFFER_MAX} 的整数`;
     messages.push(errors.rcvbuf);
   }
-  if (limitMaxClients.value && !isIntegerInRange(form.max_clients, 1, 65535)) {
-    errors.max_clients = "最大连接数必须是 1-65535 的整数";
+  if (limitMaxClients.value && !isIntegerInRange(form.max_clients, 1, MAX_CLIENTS_MAX)) {
+    errors.max_clients = `最大连接数必须是 1-${MAX_CLIENTS_MAX} 的整数`;
     messages.push(errors.max_clients);
   }
   if (!isIpv4(form.network)) {
