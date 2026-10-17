@@ -98,6 +98,12 @@ def create_app() -> FastAPI:
 
     app.include_router(api_router, prefix=settings.api_v1_prefix)
 
+    # 一次性下载链接必须**不需要登录**：同事拿到链接时还没连上 VPN。
+    # 安全性由令牌保证（一次性、限时、数据库只存 sha256），不依赖来源 IP。
+    from app.api.api_v1.endpoints import share as _share_endpoints
+
+    app.include_router(_share_endpoints.public_router, prefix="/share", tags=["share"])
+
     # 启动自检：把仍然存在的公开默认值明确喊出来，避免"以为改了其实没改"
     for problem in insecure_settings(settings):
         logger.warning("[安全自检] %s", problem)

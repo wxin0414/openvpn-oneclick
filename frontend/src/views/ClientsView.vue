@@ -40,10 +40,11 @@
             <el-tag :type="statusType(row)">{{ row.status }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="360">
+        <el-table-column label="操作" width="430">
           <template #default="{ row }">
             <el-button size="small" @click="openEdit(row)">编辑</el-button>
             <el-button size="small" type="success" :loading="busyId === row.id" @click="handleExport(row)">下载</el-button>
+            <el-button size="small" @click="openShare(row)">分享</el-button>
             <el-button size="small" type="warning" :disabled="row.status !== 'online'" @click="disconnect(row)">
               强制下线
             </el-button>
@@ -80,6 +81,7 @@
           <div class="mobile-item__actions">
             <el-button size="small" @click="openEdit(row)">编辑</el-button>
             <el-button size="small" type="success" :loading="busyId === row.id" @click="handleExport(row)">下载</el-button>
+            <el-button size="small" @click="openShare(row)">分享</el-button>
             <el-dropdown trigger="click" placement="bottom-end" @command="(command) => handleRowCommand(command, row)">
               <button type="button" class="icon-btn" aria-label="更多操作">
                 <el-icon><i class="ri-more-2-fill"></i></el-icon>
@@ -173,6 +175,23 @@
         <el-button type="primary" :loading="submitting" @click="handleCreate">{{ isEdit ? '保存' : '创建' }}</el-button>
       </template>
     </el-dialog>
+      <el-dialog v-model="shareVisible" title="一次性下载链接" width="min(92vw, 460px)">
+      <div v-if="shareLoading" v-loading="true" style="height: 200px"></div>
+      <template v-else-if="shareInfo">
+        <div v-if="shareInfo.qr" style="text-align: center; margin-bottom: 12px">
+          <img :src="shareInfo.qr" alt="下载二维码" style="width: 200px; height: 200px" />
+        </div>
+        <el-input :model-value="shareInfo.url" readonly>
+          <template #append>
+            <el-button @click="copyShareUrl">复制</el-button>
+          </template>
+        </el-input>
+        <div class="field-tip" style="margin-top: 8px">
+          手机扫码即可下载。链接只能使用一次，{{ shareInfo.ttl_minutes }} 分钟后过期
+          （{{ shareInfo.expires_at }}）；用过后需要重新生成。
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -181,6 +200,7 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
   createClient,
+  createShareLink,
   getNextIp,
   deleteClient,
   listClients,
@@ -324,6 +344,37 @@ const openEdit = (row) => {
   resetValidateState();
   dialogVisible.value = true;
 };
+
+// ---- 一次性分享链接（二维码编码的是下载链接，不是 8 KB 的配置本身）----
+const shareVisible = ref(false);
+const shareInfo = ref(null);
+const shareLoading = ref(false);
+
+async function openShare(row) {
+  shareVisible.value = true;
+  shareLoading.value = true;
+  shareInfo.value = null;
+  try {
+    const { data } = await createShareLink(row.id, 60);
+    shareInfo.value = data;
+  } catch (err) {
+    shareVisible.value = false;
+    ElMessage.error(err?.response?.data?.detail || "生成链接失败");
+  } finally {
+    shareLoading.value = false;
+  }
+}
+
+async function copyShareUrl() {
+  const url = shareInfo.value?.url;
+  if (!url) return;
+  try {
+    await navigator.clipboard.writeText(url);
+    ElMessage.success("链接已复制");
+  } catch {
+    ElMessage.warning("当前浏览器不允许访问剪贴板，请手动选中复制");
+  }
+}
 
 const handleCreate = async () => {
   submitting.value = true;

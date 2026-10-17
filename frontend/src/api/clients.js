@@ -52,3 +52,7 @@ export const validateClient = (params = {}) => api.get("/clients/validate", { pa
 
 // 地址池信息：网段 / 可用范围 / 推荐的下一个空闲 IP（用于新增时自动预填）
 export const getNextIp = () => api.get("/clients/next-ip");
+
+// 一次性下载链接（含二维码）。返回 { url, qr, expires_at, ttl_minutes }
+export const createShareLink = (id, ttlMinutes = 60) =>
+  api.post(`/clients/${id}/share`, null, { params: { ttl_minutes: ttlMinutes } });

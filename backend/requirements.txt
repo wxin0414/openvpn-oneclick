@@ -18,3 +18,6 @@ pydantic[email]
 # zoneinfo 的时区数据：Linux 通常自带 /usr/share/zoneinfo，但 Windows 开发和
 # 精简容器里没有，缺了会导致 app.utils.time 导入即失败（面板起不来）。
 tzdata
+# 客户端一次性链接的二维码（纯 Python，PNG 输出不依赖 Pillow）
+qrcode>=7.4,<9
+
