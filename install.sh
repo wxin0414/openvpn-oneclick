@@ -661,7 +661,7 @@ write_server_conf() {
   # explicit-exit-notify 与 fast-io 都只对 UDP 有效，TCP 下必须不写。
   local fast_io="" exit_notify=""
   if [ "$VPN_PROTO" = "udp" ]; then
-    fast_io="fast-io"
+    fast_io=""   # fast-io 在 OpenVPN 2.5+ 已是空操作（no-op），写了只会误导
     exit_notify="explicit-exit-notify 1"
   fi
 
@@ -755,13 +755,48 @@ detect_egress_if() {
 }
 
 enable_ip_forward() {
-  step "开启内核转发"
-  cat > /etc/sysctl.d/99-ovpn-oneclick.conf <<'EOF'
-net.ipv4.ip_forward=1
-EOF
-  sysctl -q --system 2>/dev/null || sysctl -qw net.ipv4.ip_forward=1
+  step "开启内核转发与网络调优"
+
+  # socket 缓冲：server.conf 里配的 sndbuf/rcvbuf 是 384 KiB，但内核
+  # net.core.rmem_max/wmem_max 默认只有 208 KiB —— **配置会被静默截断**（实测确认
+  # 该机器 rmem_max=212992）。对高延迟客户端这条会直接压住吞吐：
+  # 42 Mbps × 100 ms ≈ 525 KB 的带宽时延积，大于 208 KB 上限。
+  # 因此把上限抬到 4 MiB，让配置真正生效。
+  #
+  # BBR：内核提供时优先用。对丢包/高 RTT 链路（例如国内到境外 175 ms）显著优于
+  # cubic。只影响 OpenVPN 内部承载的 TCP 流量，UDP 直通不受影响。
+  local bbr_ok=0
+  if modprobe tcp_bbr 2>/dev/null \
+     && sysctl -n net.ipv4.tcp_available_congestion_control 2>/dev/null | grep -qw bbr; then
+    bbr_ok=1
+    printf 'tcp_bbr\n' > /etc/modules-load.d/ovpn-oneclick-bbr.conf 2>/dev/null || true
+  fi
+
+  {
+    echo "net.ipv4.ip_forward=1"
+    echo "# socket 缓冲上限（默认 208 KiB 会截断 sndbuf/rcvbuf 并压住高延迟客户端）"
+    echo "net.core.rmem_max = 4194304"
+    echo "net.core.wmem_max = 4194304"
+    echo "net.core.rmem_default = 262144"
+    echo "net.core.wmem_default = 262144"
+    echo "net.ipv4.udp_mem = 65536 131072 262144"
+    if [ "$bbr_ok" = "1" ]; then
+      echo "# BBR：高 RTT / 有丢包链路优于 cubic"
+      echo "net.core.default_qdisc = fq"
+      echo "net.ipv4.tcp_congestion_control = bbr"
+    fi
+  } > /etc/sysctl.d/99-ovpn-oneclick.conf
+
+  sysctl -q --system 2>/dev/null || true
+  [ "$(cat /proc/sys/net/ipv4/ip_forward)" = "1" ] || sysctl -qw net.ipv4.ip_forward=1
   [ "$(cat /proc/sys/net/ipv4/ip_forward)" = "1" ] || die "开启 ip_forward 失败"
   ok "net.ipv4.ip_forward=1"
+  ok "socket 缓冲上限 $(sysctl -n net.core.rmem_max) 字节（原 212992）"
+  if [ "$bbr_ok" = "1" ]; then
+    ok "拥塞控制 $(sysctl -n net.ipv4.tcp_congestion_control)（qdisc $(sysctl -n net.core.default_qdisc)）"
+  else
+    warn "内核未提供 BBR，保持 $(sysctl -n net.ipv4.tcp_congestion_control)"
+  fi
 }
 
 setup_nat() {
