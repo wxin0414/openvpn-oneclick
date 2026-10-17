@@ -315,6 +315,21 @@ Dashboard 新增「证书到期」卡片：列出未来 30 天内会到期的客
 - 文件名严格匹配 `server.conf.bak.<8位日期>-<6位时间>`，且必须是 `/etc/openvpn` 下的普通文件
   （拒绝符号链接与路径穿越）。
 
+## 一键诊断（面板内）
+
+「面板设置」页新增 **一键诊断** 卡片：点一下就把 11 项只读检查跑一遍，每项都带处置建议。
+出问题不用登 SSH。
+
+检查项：OpenVPN / 面板 / nginx 服务状态、特权助手通道（`apply.socket`）、IP 转发、
+托管配置块、管理接口、OpenVPN 端口是否在监听、`ta.key` 是否面板可读、证书到期、磁盘空间。
+
+- 接口：`GET /api/health/selfcheck`（需登录）。
+- 与 `GET /api/health/diagnostics` 的区别：那个被 nginx 限制成只能本机访问（留给监控），
+  浏览器根本调不到；这个是给面板用户点的。
+- **每项独立容错**：某一项探不到（无 systemd、无权限）只把它标成 `unknown`，
+  绝不让整个自检 500 —— 最需要诊断的时候它不能先挂。
+- 只读：不重启服务、不改配置。
+
 ## 备份与恢复
 
 **一键备份。** 面板「面板设置 → 备份」，或 `POST /api/panel/backup`。备份四样真正无法重建的东西：PKI（`/etc/openvpn/easy-rsa`）、`server.conf`、`backend/.env`（`SECRET_KEY` 与口令）、`backend/data/app.db`。产物在 `/var/backups/ovpn-oneclick/manual-<时间戳>.tar.gz`，权限 `0600`（内含 CA 私钥与 `SECRET_KEY`，**不要外传**），只保留最近 10 份。备份列表的索引在 `/etc/ovpn-oneclick/backup-index.jsonl`（`0644`，只含路径/大小/时间，不含密钥内容）。

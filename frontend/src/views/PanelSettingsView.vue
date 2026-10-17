@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
+import api from "../api/http";
 
 import {
   createBackup,
@@ -403,6 +404,26 @@ onMounted(() => {
   loadBackups();
   loadNetwork();
 });
+
+// ---- 一键诊断 ----
+const checkItems = ref([]);
+const checkCounts = ref({ ok: 0, warn: 0, fail: 0, unknown: 0 });
+const checkSummary = ref("");
+const checkLoading = ref(false);
+
+async function runSelfcheck() {
+  checkLoading.value = true;
+  try {
+    const { data } = await api.get("/health/selfcheck");
+    checkItems.value = data.items || [];
+    checkCounts.value = data.counts || { ok: 0, warn: 0, fail: 0, unknown: 0 };
+    checkSummary.value = data.summary || "";
+  } catch (err) {
+    ElMessage.error(err?.response?.data?.detail || "自检失败");
+  } finally {
+    checkLoading.value = false;
+  }
+}
 </script>
 
 <template>
@@ -599,7 +620,47 @@ onMounted(() => {
       </el-button>
       <el-button type="primary" :loading="saving" @click="save">保存并应用</el-button>
     </div>
-  </div>
+        <el-card class="panel-card" shadow="never">
+        <template #header>
+          <div class="card-head">
+            <span>一键诊断</span>
+            <el-button size="small" type="primary" :loading="checkLoading" @click="runSelfcheck">
+              运行自检
+            </el-button>
+          </div>
+        </template>
+        <div class="field-tip" style="margin-bottom: 8px">
+          只读检查：服务状态、端口占用、IP 转发、特权助手通道、管理接口、tls 密钥可读性、
+          证书到期、磁盘空间。每一项都带处置建议，出问题不用登 SSH。
+        </div>
+        <div v-if="!checkItems.length" class="field-tip">点击「运行自检」开始。</div>
+        <template v-else>
+          <el-tag
+            :type="checkSummary === 'ok' ? 'success' : checkSummary === 'warn' ? 'warning' : 'danger'"
+            style="margin-bottom: 8px"
+          >
+            {{ checkSummary === "ok" ? "全部正常" : checkSummary === "warn" ? "有告警" : "有故障" }}
+            · 正常 {{ checkCounts.ok }} / 告警 {{ checkCounts.warn }} / 故障 {{ checkCounts.fail }}
+            / 未知 {{ checkCounts.unknown }}
+          </el-tag>
+          <el-table :data="checkItems" size="small" max-height="380">
+            <el-table-column prop="name" label="检查项" width="150" />
+            <el-table-column label="状态" width="90">
+              <template #default="{ row }">
+                <el-tag
+                  :type="row.status === 'ok' ? 'success' : row.status === 'warn' ? 'warning' : row.status === 'fail' ? 'danger' : 'info'"
+                  size="small"
+                >
+                  {{ row.status }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="detail" label="结果" min-width="220" />
+            <el-table-column prop="hint" label="建议" min-width="240" />
+          </el-table>
+        </template>
+      </el-card>
+</div>
 </template>
 
 <style scoped>

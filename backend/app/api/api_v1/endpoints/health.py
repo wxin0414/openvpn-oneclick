@@ -1,5 +1,6 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from app.api.security import get_current_user
 from app.core.config import get_settings, insecure_settings
 from app.services import management, openvpn
 
@@ -46,3 +47,14 @@ def diagnostics() -> dict:
         "openvpn_service": openvpn.service_state(),
         "security_warnings": insecure_settings(settings),
     }
+
+@router.get("/selfcheck", summary="一键自检（需登录）")
+def selfcheck(user=Depends(get_current_user)) -> dict:
+    """把 verify.sh 的检查搬到界面。只读，不重启也不改配置。
+
+    与 /diagnostics 的区别：那个被 nginx 限制成只能本机访问（给监控用），浏览器调不到；
+    这个需要登录，可以直接从面板点。
+    """
+    from app.services import selfcheck as selfcheck_service
+
+    return selfcheck_service.run_all()
