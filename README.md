@@ -286,6 +286,20 @@ sudo nginx -t && sudo systemctl reload nginx
   引入 ECharts 会让前端包体大一个数量级。
 - 历史接口：`GET /api/traffic/overview?hours=24`（可选 1–720 小时）。
 
+## 证书到期
+
+Dashboard 新增「证书到期」卡片：列出未来 30 天内会到期的客户端证书，并用告警条提示；
+已过期未吊销的会标红并显示过期天数。
+
+- 接口：`GET /api/dashboard/certificate-expiry?days=30`（1–3650 天）。
+- Dashboard 的 `alerts.count` 现在等于"30 天内到期/已过期且未吊销"的证书数——
+  此前这个字段是**写死的 0**，等于把最重要的运维提醒藏了起来。
+- 客户端证书默认 **825 天**。到期后客户端无法连接，需要在「客户端管理」里吊销并重新签发。
+
+统计口径（`total = valid + revoked + expired`）：
+`valid` 是"状态有效**且**未过期"，`expired` 是"未吊销**且**已过期"，两者不重叠。
+之前 `valid` 只判状态、`expired` 不排除已吊销，导致四个分项加起来会超过 `total`。
+
 ## 备份与恢复
 
 **一键备份。** 面板「面板设置 → 备份」，或 `POST /api/panel/backup`。备份四样真正无法重建的东西：PKI（`/etc/openvpn/easy-rsa`）、`server.conf`、`backend/.env`（`SECRET_KEY` 与口令）、`backend/data/app.db`。产物在 `/var/backups/ovpn-oneclick/manual-<时间戳>.tar.gz`，权限 `0600`（内含 CA 私钥与 `SECRET_KEY`，**不要外传**），只保留最近 10 份。备份列表的索引在 `/etc/ovpn-oneclick/backup-index.jsonl`（`0644`，只含路径/大小/时间，不含密钥内容）。

@@ -19,6 +19,8 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, Query
+from datetime import timedelta
+
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
@@ -39,9 +41,24 @@ def _certificate_stats(db: Session) -> dict[str, int]:
     row = (
         db.query(
             func.count().label("total"),
-            func.sum(case((cert_model.status == "valid", 1), else_=0)).label("valid"),
+            # valid 必须是"状态有效且未过期"：此前只判 status，导致一张已过期的证书
+            # 同时计入 valid 和 expired，四个分项加起来会超过 total。
+            func.sum(
+                case(
+                    ((cert_model.status == "valid") & (cert_model.not_after >= utcnow_naive()), 1),
+                    else_=0,
+                )
+            ).label("valid"),
             func.sum(case((cert_model.status == "revoked", 1), else_=0)).label("revoked"),
-            func.sum(case((cert_model.not_after < utcnow_naive(), 1), else_=0)).label("expired"),
+            # expired 同样要排除已吊销：吊销的证书本来就不该再用，算「过期」会让
+            # total / valid / revoked / expired 四个分项加起来超过 total（实测 5 张证书
+            # 算出 6）。口径统一为：valid + revoked + expired == total。
+            func.sum(
+                case(
+                    ((cert_model.status != "revoked") & (cert_model.not_after < utcnow_naive()), 1),
+                    else_=0,
+                )
+            ).label("expired"),
         )
         .select_from(cert_model)
         .one()
@@ -142,7 +159,50 @@ def get_dashboard_metrics(
             "load_stats": load_stats_dict,
             "state_events": state_events_dict,
         },
-        # 目前暂无告警系统，占位返回 0
-        "alerts": {"count": 0},
+        # 告警：只统计"即将到期/已过期但未吊销"的客户端证书。
+        # 之前这里是写死的 0，等于把最重要的运维提醒藏了起来。
+        "alerts": {"count": len(_expiring_certificates(db, 30))},
         "recent_activity": recent_logs,
+    }
+
+def _expiring_certificates(db: Session, days: int) -> list[dict]:
+    """即将到期或已过期的证书（已吊销的不算：它本来就不该再用）。"""
+    model = crud.certificate.model
+    now = utcnow_naive()
+    rows = (
+        db.query(model)
+        .filter(model.status != "revoked")
+        .filter(model.not_after <= now + timedelta(days=days))
+        .order_by(model.not_after.asc())
+        .all()
+    )
+    items: list[dict] = []
+    for cert in rows:
+        # 用 total_seconds 再取整：timedelta.days 是向下取整，
+        # 3 天前过期会算出 -4，导致界面显示「已过期 4 天」。int() 是向零截断。
+        days_left = int((cert.not_after - now).total_seconds() / 86400)
+        items.append(
+            {
+                "common_name": cert.common_name,
+                "not_after": cert.not_after.isoformat() + "Z",
+                "days_left": days_left,
+                "expired": days_left < 0,
+                "status": cert.status,
+            }
+        )
+    return items
+
+
+@router.get("/certificate-expiry")
+def certificate_expiry(
+    days: int = Query(30, ge=1, le=3650),
+    db: Session = Depends(deps.get_db),
+) -> dict:
+    """证书到期清单（默认看未来 30 天，含已过期未吊销的）。"""
+    items = _expiring_certificates(db, days)
+    return {
+        "items": items,
+        "count": len(items),
+        "expired": sum(1 for i in items if i["expired"]),
+        "days": days,
     }

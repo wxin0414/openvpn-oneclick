@@ -34,6 +34,43 @@
         </el-descriptions>
       </section>
 
+      <section class="section-card" v-loading="certLoading">
+        <div class="section-card__head">
+          <h2 class="section-card__title">证书到期</h2>
+        </div>
+        <el-alert
+          v-if="certExpiry.count"
+          :title="certExpiry.count + ' 张证书将在 ' + certExpiry.days + ' 天内到期' + (certExpiry.expired ? '（其中 ' + certExpiry.expired + ' 张已过期）' : '')"
+          type="warning"
+          :closable="false"
+          show-icon
+          style="margin-bottom: 10px"
+        />
+        <div
+          v-if="!certExpiry.items.length"
+          style="color: var(--el-text-color-secondary); font-size: 13px"
+        >
+          未来 {{ certExpiry.days }} 天内没有证书到期。
+        </div>
+        <el-table v-else :data="certExpiry.items" size="small">
+          <el-table-column prop="common_name" label="客户端" />
+          <el-table-column prop="not_after" label="到期时间" width="190" />
+          <el-table-column label="剩余" width="120">
+            <template #default="{ row }">
+              <el-tag
+                :type="row.expired ? 'danger' : row.days_left <= 7 ? 'warning' : 'info'"
+                size="small"
+              >
+                {{ row.expired ? "已过期 " + -row.days_left + " 天" : row.days_left + " 天" }}
+              </el-tag>
+            </template>
+          </el-table-column>
+        </el-table>
+        <div class="field-tip" style="margin-top: 8px">
+          客户端证书默认 825 天。到期后该客户端无法连接，需要在「客户端管理」里吊销并重新签发。
+        </div>
+      </section>
+
       <section class="section-card" v-loading="trafficLoading">
         <div class="section-card__head">
           <h2 class="section-card__title">流量（近 {{ trafficHours }} 小时）</h2>
@@ -164,7 +201,7 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
 import { ElMessage } from "element-plus";
-import { getDashboardMetrics } from "../api/dashboard";
+import { getCertificateExpiry, getDashboardMetrics } from "../api/dashboard";
 import { getTrafficOverview } from "../api/traffic";
 import { formatTimeZh } from "../utils/time";
 import { useBreakpoint } from "../composables/useBreakpoint";
@@ -297,6 +334,22 @@ const traffic = ref(null);
 const trafficLoading = ref(false);
 const trafficHours = ref(24);
 
+// ---- 证书到期 ----
+const certExpiry = ref({ items: [], count: 0, expired: 0, days: 30 });
+const certLoading = ref(false);
+
+async function loadCertExpiry() {
+  certLoading.value = true;
+  try {
+    const { data } = await getCertificateExpiry(30);
+    certExpiry.value = data;
+  } catch {
+    certExpiry.value = { items: [], count: 0, expired: 0, days: 30 };
+  } finally {
+    certLoading.value = false;
+  }
+}
+
 async function loadTraffic() {
   trafficLoading.value = true;
   try {
@@ -330,6 +383,7 @@ const trafficTxPath = computed(() => trafficPath((p) => p.tx));
 onMounted(() => {
   fetchMetrics();
   loadTraffic();
+  loadCertExpiry();
 });
 </script>
 
