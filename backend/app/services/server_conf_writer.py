@@ -85,6 +85,8 @@ MANAGED_DIRECTIVES: tuple[str, ...] = (
     "topology",
     "data-ciphers",
     "auth",
+    "user",
+    "group",
     "mssfix",
     "sndbuf",
     "rcvbuf",
@@ -121,6 +123,8 @@ RENDER_ORDER: tuple[str, ...] = (
     "topology",
     "data-ciphers",
     "auth",
+    "user",
+    "group",
     "mssfix",
     "sndbuf",
     "rcvbuf",
@@ -227,6 +231,13 @@ def render_managed_block(settings_dict: dict) -> list[str]:
         lines.append(f"data-ciphers {settings_dict['data_ciphers']}")
     if settings_dict.get("auth"):
         lines.append(f"auth {settings_dict['auth']}")
+    # 降权运行：OpenVPN 启动完成后切到这些用户/组。名字由 validate_editable
+    # 按用户名的字符规则校验；若该用户不存在或降权后读不到证书，服务会起不来，
+    # 助手会整体回滚（见 apply-config 的 ROLLED_BACK 分支）。
+    for key in ("user", "group"):
+        value = settings_dict.get(key)
+        if value:
+            lines.append(f"{key} {value}")
     # 收发缓冲还必须**推给客户端**：只调服务端一侧的话客户端仍然是小缓冲，
     # 吞吐收益主要来自两端一起放大。install.sh 写入的托管块里本来就有这两条 push，
     # 面板若不输出，用户保存一次设置后客户端就再也拿不到缓冲调优（静默回退）。

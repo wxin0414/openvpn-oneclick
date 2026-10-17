@@ -60,6 +60,8 @@ MANAGED_SCALARS: frozenset[str] = frozenset(
         "block-ipv6",
         "data-ciphers",
         "auth",
+        "user",
+        "group",
     }
 )
 
@@ -97,6 +99,8 @@ DEFAULT_EDITABLE_TOPOLOGY = "subnet"
 # proto 只开放 udp/tcp 两种可编辑取值（见 validate_editable）；这里只校验
 # keepalive 与三种 push 形态。
 _KEEPALIVE_RE = re.compile(r"^\d+ \d+$")
+# 系统用户/组名的字符规则（不查是否存在——那需要 shell，交给助手用真实结果回答）
+_USERNAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]{0,31}$")
 
 # 可编辑的加密套件与认证摘要（OpenVPN 2.6 常用集合）。
 # 刻意用白名单而不是自由字符串：写错一个套件名会让服务端直接起不来。
@@ -518,6 +522,8 @@ EDITABLE_KEYS: tuple[str, ...] = (
     "topology",
     "data_ciphers",
     "auth",
+    "user",
+    "group",
 )
 
 _NULLABLE_INTS = {"mssfix", "sndbuf", "rcvbuf", "max_clients"}
@@ -584,6 +590,11 @@ def validate_editable(payload: dict, *, current: dict) -> list[str]:
                 problems.append("mssfix 必须在 0-1500 之间")
             elif key != "mssfix" and not 0 <= value <= 10485760:
                 problems.append(f"{key} 必须在 0-10485760 之间")
+        elif key in ("user", "group"):
+            # 只校验名字形态；该用户/组是否真的存在、降权后能否读证书，
+            # 由助手重启服务时用真实结果回答（起不来就整体回滚）。
+            if value is not None and (not isinstance(value, str) or not _USERNAME_RE.match(value)):
+                problems.append(f"{key} 必须是合法的系统用户/组名（字母或下划线开头，可含数字、下划线、连字符）")
         elif key == "auth":
             if value is not None and value not in _VALID_AUTH:
                 problems.append(f"auth 只能是 {'/'.join(_VALID_AUTH)} 或 null")

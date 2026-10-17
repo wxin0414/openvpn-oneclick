@@ -254,19 +254,37 @@ if ! systemctl restart "$OVPN_SERVICE" >/dev/null 2>&1; then
 fi
 RESTARTED="yes"
 
+# 就绪判定：必须**连续保持** active 若干秒，而不是"看到一次 active 就算成功"。
+# 为什么：OpenVPN 在某些配置错误下（典型是 `user <不存在的人>`——降权发生在初始化
+# 之后）会先进入 active 再退出。只看一次采样会把它判成成功，于是坏配置被留在盘上、
+# 服务进入重启循环，而面板还显示"已应用"。
+# 实测踩过这个坑：生产 VPN 直接不可用，且面板毫无提示。
+STABLE_ACTIVE_SECONDS="${STABLE_ACTIVE_SECONDS:-4}"
 state=""
+stable=0
 i=0
 while [ "$i" -lt "$WAIT_ACTIVE_SECONDS" ]; do
   state="$(systemctl is-active "$OVPN_SERVICE" 2>/dev/null || true)"
-  [ "$state" = "active" ] && break
+  case "$state" in
+    active)
+      stable=$((stable + 1))
+      [ "$stable" -ge "$STABLE_ACTIVE_SECONDS" ] && break
+      ;;
+    failed)
+      break   # 已经是 failed，不必再等
+      ;;
+    *)
+      stable=0
+      ;;
+  esac
   sleep 1
   i=$((i + 1))
 done
 
-if [ "$state" != "active" ]; then
-  log "服务未变为 active（当前 ${state}），开始回滚"
+if [ "$state" != "active" ] || [ "$stable" -lt "$STABLE_ACTIVE_SECONDS" ]; then
+  log "服务未能稳定 active（状态 ${state}，连续 ${stable}s，要求 ${STABLE_ACTIVE_SECONDS}s），开始回滚"
   do_rollback
-  fail "新配置下 ${OVPN_SERVICE} 未能启动（当前状态：${state}），已回滚到上一份配置"
+  fail "新配置下 ${OVPN_SERVICE} 未能稳定运行（状态 ${state}，连续 ${stable}s），已回滚到上一份配置"
 fi
 
 # ---------------------------------------------------------------------------
