@@ -49,3 +49,6 @@ export const revokeClientCert = (id, payload = {}, { wait = false } = {}) =>
 export const checkExportedClientOvpn = (id) => api.get(`/clients/${id}/cert/exported`);
 export const disconnectClient = (id) => api.post(`/clients/${id}/disconnect`);
 export const validateClient = (params = {}) => api.get("/clients/validate", { params });
+
+// 地址池信息：网段 / 可用范围 / 推荐的下一个空闲 IP（用于新增时自动预填）
+export const getNextIp = () => api.get("/clients/next-ip");

@@ -220,13 +220,52 @@ def _read_server_directives() -> dict:
     }
 
 
+def _paths_from_server_conf() -> tuple[Path | None, Path | None]:
+    """从 server.conf 读 ca 与 tls-crypt/tls-auth 的真实文件路径。
+
+    返回 (ca_path, ta_path)，缺失项为 None，由调用方回退到默认值。
+    """
+    conf = server_conf.load()
+    if not conf.exists:
+        return None, None
+    try:
+        text = Path(conf.path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None, None
+
+    ca: Path | None = None
+    ta: Path | None = None
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith(("#", ";")):
+            continue
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        key = parts[0].lower()
+        if key == "ca":
+            ca = Path(parts[1])
+        elif key in ("tls-crypt", "tls-auth"):
+            ta = Path(parts[1])
+    return ca, ta
+
+
 def export_ovpn(client: Client, remote_host: str, remote_port: int) -> str:
     """Render inline .ovpn for the given client, following the live server.conf."""
     base = settings.easyrsa_path / "pki"
     cert_path = base / "issued" / f"{client.common_name}.crt"
     key_path = base / "private" / f"{client.common_name}.key"
+    # 顺序很重要：**显式设置优先**（settings / 环境变量，测试也会 monkeypatch 它），
+    # 只有当它指向的文件不存在时，才按 server.conf 里的实际指令回退。
+    # 反过来（配置优先）会覆盖掉显式设置——实测会让依赖 monkeypatch 的测试挂掉，
+    # 也会让"用环境变量指定路径"的部署方式失效。
     ca_path = settings.openvpn_base_path / "server" / "ca.crt"
     ta_path = settings.ta_key_path
+    ca_from_conf, ta_from_conf = _paths_from_server_conf()
+    if not ca_path.exists() and ca_from_conf is not None:
+        ca_path = ca_from_conf
+    if not ta_path.exists() and ta_from_conf is not None:
+        ta_path = ta_from_conf
 
     required = [cert_path, key_path, ca_path]
     # tls-crypt/tls-auth 密钥仅在服务端确实启用时才必需

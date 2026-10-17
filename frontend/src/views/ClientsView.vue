@@ -140,12 +140,16 @@
             {{ validateState.commonNameMessage }}
           </div>
         </el-form-item>
-        <el-form-item label="固定IP" required>
+        <el-form-item label="固定IP（可留空自动分配）">
           <el-input
             v-model="form.fixed_ip"
-            placeholder="10.8.0.x（必须在 server.conf 网段内）"
+            :placeholder="ipPool.start ? `${ipPool.start} ~ ${ipPool.end}（留空则自动分配）` : '留空则自动分配'"
             @blur="debouncedValidate('fixed_ip')"
           />
+          <div v-if="ipPool.start" class="field-tip">
+            当前网段 {{ ipPool.network }}/{{ ipPool.cidr }}（掩码 {{ ipPool.netmask }}），
+            可用 {{ ipPool.start }} ~ {{ ipPool.end }}，已占用 {{ ipPool.used.length }} 个
+          </div>
           <div
             v-if="validateState.fixedIpOk !== null && validateState.fixedIpMessage"
             :class="['field-tip', validateState.fixedIpOk ? 'ok' : 'err']"
@@ -177,6 +181,7 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
   createClient,
+  getNextIp,
   deleteClient,
   listClients,
   updateClient,
@@ -272,12 +277,32 @@ const runJob = async (response, { timeoutMs } = {}) => {
   return job.result;
 };
 
-const openCreate = () => {
+// 地址池信息：网段 / 可用范围 / 推荐地址。读不到就静默跳过，不打扰用户。
+const ipPool = reactive({ network: "", netmask: "", cidr: null, start: "", end: "", suggested: "", used: [] });
+
+const loadIpPool = async () => {
+  try {
+    const { data } = await getNextIp();
+    Object.assign(ipPool, {
+      network: data.network || "",
+      netmask: data.netmask || "",
+      cidr: data.cidr ?? null,
+      start: data.start || "",
+      end: data.end || "",
+      suggested: data.suggested || "",
+      used: Array.isArray(data.used) ? data.used : [],
+    });
+  } catch {
+    /* 读不到就不预填 */
+  }
+};
+
+const openCreate = async () => {
   Object.assign(form, {
     id: null,
     name: "client-01",
     common_name: "client-01",
-    fixed_ip: "10.8.0.10",
+    fixed_ip: "",
     routes: "",
     status: "offline",
     disabled: false,
@@ -285,6 +310,12 @@ const openCreate = () => {
   isEdit.value = false;
   resetValidateState();
   dialogVisible.value = true;
+  // 拉当前网段与推荐地址：原来这里写死 "10.8.0.10"，而服务端网段可能根本不是
+  // 10.8.0.0/24（本机是 10.8.44.0/24），于是用户一提交就被"不在网段内"拦住。
+  await loadIpPool();
+  if (!form.fixed_ip && ipPool.suggested) {
+    form.fixed_ip = ipPool.suggested;
+  }
 };
 
 const openEdit = (row) => {
@@ -297,8 +328,8 @@ const openEdit = (row) => {
 const handleCreate = async () => {
   submitting.value = true;
   try {
-    if (!form.name || !form.common_name || !form.fixed_ip) {
-      throw new Error("名称、证书CN、固定IP均为必填");
+    if (!form.name || !form.common_name) {
+      throw new Error("名称、证书CN为必填");
     }
     await validateAll(true);
     if (isEdit.value) {

@@ -85,8 +85,9 @@ def _validate_fields(
             raise HTTPException(status_code=400, detail="名称为必填项")
         if not common_name:
             raise HTTPException(status_code=400, detail="证书CN为必填项")
-        if not fixed_ip:
-            raise HTTPException(status_code=400, detail="固定IP为必填项")
+        # 固定 IP 不是必填项：留空则由 OpenVPN 自己从地址池分配（不写 CCD 的
+        # ifconfig-push）。原来强制必填，用户得自己算网段内还剩哪个地址没用，
+        # 填错就被"不在网段内"拦下——这是形式大于收益的限制。
 
     if name:
         existing = db.query(crud.client.model).filter(crud.client.model.name == name).first()
@@ -284,6 +285,52 @@ def update_client(client_id: int, client_in: ClientUpdate, db: Session = Depends
             routes = [r.strip() for r in client_in.routes.split(",") if r.strip()]
         ccd_service.write_ccd(updated, fixed_ip=client_in.fixed_ip, routes=routes)
     return updated
+
+
+@router.get("/next-ip")
+def next_ip(db: Session = Depends(deps.get_db), _=Depends(get_current_user)) -> dict:
+    """给前端用的地址池信息：网段、可用范围、推荐的下一个空闲 IP。
+
+    放在 ``/{client_id}`` 之前声明，否则会被动态路由吃掉（返回 422）。
+    """
+    net = _load_server_network()
+    used = sorted(
+        row[0] for row in db.query(crud.client.model.fixed_ip).all() if row[0]
+    )
+    payload: dict = {
+        "network": None,
+        "netmask": None,
+        "cidr": None,
+        "start": None,
+        "end": None,
+        "suggested": None,
+        "used": used,
+    }
+    if not isinstance(net, IPv4Network):
+        return payload
+
+    # /24 之类的网段：首个地址是服务端自己，末位是广播，客户端可用中间段
+    start = int(net.network_address) + 2
+    end = int(net.broadcast_address) - 1
+    payload.update(
+        {
+            "network": str(net.network_address),
+            "netmask": str(net.netmask),
+            "cidr": net.prefixlen,
+            "start": str(ip_address(start)) if start <= end else None,
+            "end": str(ip_address(end)) if start <= end else None,
+        }
+    )
+    # 只扫前 4096 个地址：/16 这类大网段下逐个实例化没有意义，
+    # 而且正常情况下客户端数量远小于这个数。
+    used_set = set(used)
+    limit = min(end, start + 4095)
+    for value in range(start, limit + 1):
+        candidate = str(ip_address(value))
+        if candidate not in used_set:
+            payload["suggested"] = candidate
+            break
+    return payload
 
 
 @router.delete("/{client_id}", response_model=None)

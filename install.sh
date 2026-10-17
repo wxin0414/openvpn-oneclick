@@ -1203,6 +1203,12 @@ deploy_panel() {
   chmod 0600 "${PANEL_HOME}/backend/.env"
   chown -R "${PANEL_USER}:${PANEL_USER}" "$EASYRSA_DIR" "$CCD_DIR" "$CLIENT_EXPORT_DIR" 2>/dev/null || true
   touch "$CRL_PATH"; chown "${PANEL_USER}:${PANEL_USER}" "$CRL_PATH"; chmod 0644 "$CRL_PATH"
+  # 采纳既有安装时 TA_KEY 可能是别人生成的 0600 文件，这里统一纠正一次，
+  # 否则"导出客户端"在 adopt 之后仍然会 Permission denied（实测踩过）。
+  if [ -f "$TA_KEY" ]; then
+    chown "root:${PANEL_USER}" "$TA_KEY" 2>/dev/null || true
+    chmod 0640 "$TA_KEY" 2>/dev/null || chmod 0644 "$TA_KEY"
+  fi
   touch "${LOG_DIR}/openvpn-status.log" 2>/dev/null || true
 
   # systemd
