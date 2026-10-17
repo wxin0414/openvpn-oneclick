@@ -208,6 +208,15 @@
             </el-select>
             <div class="field-tip">只有全部套件都是 AEAD（GCM/CHACHA20）时 none 才有意义。</div>
           </el-form-item>
+          <el-form-item label="运行用户 (user)">
+            <el-input v-model="form.user" placeholder="nobody" />
+            <div class="field-tip">OpenVPN 初始化完成后降权到这个用户；写错会让服务起不来（助手会回滚）。</div>
+          </el-form-item>
+
+          <el-form-item label="运行用户组 (group)">
+            <el-input v-model="form.group" placeholder="nogroup" />
+            <div class="field-tip">与 user 配套；Debian 上是 nogroup，RHEL 系通常是 nobody。</div>
+          </el-form-item>
           <el-form-item label="发送缓冲区 (sndbuf)" required>
             <el-input-number v-model="form.sndbuf" :min="0" :max="BUFFER_MAX" :step="1024" controls-position="right" />
             <div v-if="errors.sndbuf" class="field-tip err">{{ errors.sndbuf }}</div>
@@ -342,6 +351,8 @@ const SETTINGS_KEYS = [
   "topology",
   "data_ciphers",
   "auth",
+  "user",
+  "group",
 ];
 
 // 下拉选项。接口若返回列表外的值，会以“当前值”占位追加，避免静默改写配置。
@@ -399,6 +410,8 @@ const form = reactive({
   topology: "subnet",
   data_ciphers: "",
   auth: "",
+  user: "",
+  group: "",
 });
 
 // 只读指令单独存一份，避免模板里对可能为 null 的对象取属性。

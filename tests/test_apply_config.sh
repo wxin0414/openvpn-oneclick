@@ -263,5 +263,20 @@ for f in templates/apply-config.sh templates/apply-validate.sh; do
   if bash -n "${ROOT}/${f}" 2>/dev/null; then ok "语法 OK：${f}"; else bad "语法错误：${f}"; fi
 done
 
+printf '\n\033[1;34m== 就绪判定（防止退回"看到一次 active 就算成功"）\033[0m\n'
+HELPER="${ROOT}/templates/apply-config.sh"
+# 背景：openvpn 的 `user <不存在的人>` 这类错误发生在降权之后，进程会先短暂
+# active 再退出。旧逻辑"看到一次 active 就 break"会判成功，把坏配置留在盘上——
+# 实测导致生产 VPN 中断，而面板显示"已应用"。现在要求连续保持 active 若干秒。
+check "就绪判定使用连续阈值常量" \
+  grep -q 'STABLE_ACTIVE_SECONDS' "$HELPER"
+check "存在 stable 计数器自增" \
+  grep -q 'stable=\$((stable + 1))' "$HELPER"
+check "遇到 failed 立即中止等待" \
+  grep -qE '^[[:space:]]*failed\)' "$HELPER"
+check "未达到连续阈值会调用 do_rollback" \
+  grep -q 'do_rollback' "$HELPER"
+check "没有退回『一次 active 就 break』的老写法" \
+  not grep -qE '\$state.*=.*"active".*&&.*break' "$HELPER"
 printf '\n\033[1;34m==== 结果：通过 %d，失败 %d ====\033[0m\n' "$pass" "$fail"
 [ "$fail" -eq 0 ] || exit 1
