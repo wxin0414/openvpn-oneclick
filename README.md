@@ -63,6 +63,29 @@ sudo bash install.sh --auto
 
 云服务器还需在安全组/防火墙里放行 OpenVPN 端口与面板的 TCP 5698。
 
+## Docker 部署
+
+```bash
+git clone https://github.com/wxin0414/openvpn-oneclick.git && cd openvpn-oneclick
+docker compose up -d --build
+```
+
+- 面板：`http://<host>:5698/ovpnmanager/`　OpenVPN：`udp/<host>:1194`
+- 首次启动会在容器内初始化 PKI 并生成 `server.conf`（约 1–2 分钟），数据落在三个命名卷里：
+  `ovpn-certs`（`/etc/openvpn`）、`ovpn-data`（面板数据库）、`ovpn-backups`。
+- 必须给 `NET_ADMIN` 与 `/dev/net/tun`（compose 里已配）——否则 tun 设备建不起来、NAT 写不进去。
+
+**容器内外同构，但有一条关键差异**：容器里没有 systemd，所以"改配置/重启服务"走的是
+**sudo 通道**而不是宿主机上的 socket 激活。为此镜像内复刻了同一套权限模型：面板仍以
+**非 root 用户 `ovpnpanel`** 运行，只通过 `/etc/sudoers.d/ovpnmanager` 里那几条固定规则调用
+同一批助手脚本（且助手不接受参数）。**面板代码零改动。**
+
+不适用的部分：面板里的「在线升级」与「服务重启」依赖 systemd，容器内会失败；
+升级容器请用 `docker compose pull && up -d`。
+
+> 说明：镜像构建脚本已随仓库提供，但尚未在真机上完成一次完整 `docker compose up` 验证；
+> 首次使用请留意日志（`docker compose logs -f`）。
+
 ## 快速开始
 
 全自动安装，全部使用默认值：

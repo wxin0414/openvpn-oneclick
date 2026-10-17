@@ -1,0 +1,10 @@
+.git
+.github
+frontend/node_modules
+frontend/dist
+backend/.venv
+backend/__pycache__
+**/__pycache__
+tests
+work
+# 注意：panel/ovpnmanager-panel.tar.gz 必须保留（镜像要用它）

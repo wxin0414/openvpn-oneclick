@@ -4,6 +4,33 @@
 
 关于版本号：仓库历史中 `VERSION.txt` 由 `1.2.2` 直接跳到 `1.2.4`，没有 1.2.3 的独立提交，因此这里没有 `[1.2.3]` 条目。1.2.2 与 1.2.3 都因下列安装缺陷无法在 Debian 12 上完成安装，修复集中在 1.2.4。
 
+## [1.3.8] — 2026-10-18
+
+Docker 部署形态。
+
+### 新增
+
+- `docker/Dockerfile`：Debian 12 + OpenVPN + 面板 + 容器内 nginx 的一体化镜像。
+- `docker/entrypoint.sh`：首次启动初始化 PKI 与 `server.conf`，然后同时管理 openvpn / nginx / 面板
+  三个进程（容器里 entrypoint 就是服务管理器），任一关键进程退出则整容器退出并等待重启。
+- `docker/nginx.conf`：容器内只做静态与反代（`/ovpnmanager/`、`/api/`、`/share/`）。
+- `docker-compose.yml`：`NET_ADMIN` + `/dev/net/tun` + 三个命名卷 + healthcheck。
+- `.dockerignore`。
+
+### 关键设计
+
+容器里**没有 systemd**，所以"改配置 / 重启服务"不能走宿主机那套 socket 激活。
+镜像**复刻了同一套权限模型**而不是改代码：面板仍以非 root 用户 `ovpnpanel` 运行，
+只通过 `/etc/sudoers.d/ovpnmanager` 里几条固定规则调用同一批助手脚本（助手不接受参数），
+`helper_client` 的 sudo 兜底通道因此自然可用。**面板代码零改动。**
+
+容器内不适用：面板的「在线升级」「服务重启」（依赖 systemd）。升级容器用
+`docker compose pull && up -d`。
+
+### 状态说明（如实记录）
+
+本轮完成了文件与 `entrypoint.sh` 语法校验，**尚未在真机跑通一次完整
+`docker compose up --build`**。README 里对此有明确标注，下一轮补齐真机构建与容器内自检证据。
 ## [1.3.7] — 2026-10-18
 
 面板内一键诊断。

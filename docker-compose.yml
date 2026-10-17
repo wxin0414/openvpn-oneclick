@@ -1,0 +1,40 @@
+# 一体化部署：OpenVPN + 面板 + 容器内 nginx
+#
+# 前面说过：容器里没有 systemd，"改配置 / 重启服务"走的是 sudo 通道而不是 socket。
+# 因此必须给 NET_ADMIN（NAT 与 tun 设备）并允许写 /dev/net/tun。
+services:
+  ovpn:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: ovpn-oneclick:latest
+    container_name: ovpn-oneclick
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    ports:
+      - "1194:1194/udp"
+      - "5698:5698/tcp"
+    volumes:
+      - ovpn-certs:/etc/openvpn
+      - ovpn-data:/opt/ovpnmanager/backend/data
+      - ovpn-backups:/var/backups/ovpn-oneclick
+    environment:
+      # 面板对外端口必须与上面映射的端口一致
+      PANEL_WEB_PORT: "5698"
+      VPN_NETWORK: "10.8.44.0"
+      VPN_NETMASK: "255.255.255.0"
+      VPN_PORT: "1194"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:5698/api/health/ready || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+
+volumes:
+  ovpn-certs:
+  ovpn-data:
+  ovpn-backups:
