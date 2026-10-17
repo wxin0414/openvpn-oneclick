@@ -49,6 +49,8 @@ APPLY_PANEL_CONFIG_BIN = os.environ.get(
     "APPLY_PANEL_CONFIG_BIN", "/usr/local/lib/ovpnmanager/apply-panel-config"
 )
 APPLY_TIMEOUT_SECONDS = int(os.environ.get("APPLY_PANEL_TIMEOUT_SECONDS", "120"))
+BACKUP_BIN = os.environ.get("BACKUP_BIN", "/usr/local/lib/ovpnmanager/backup-now")
+BACKUP_TIMEOUT_SECONDS = int(os.environ.get("BACKUP_TIMEOUT_SECONDS", "180"))
 PANEL_DATA_DIR = Path(os.environ.get("PANEL_DATA_DIR", "/opt/ovpnmanager/backend/data"))
 CANDIDATE = PANEL_DATA_DIR / "panel.candidate"
 WEB_NAME = "ovpnmanager"
@@ -144,7 +146,7 @@ def _write_candidate(values: dict[str, str]) -> None:
 
 def _parse_helper(stdout: str) -> dict[str, str]:
     wanted = {"RESULT", "NEW_URL", "PORT_CHANGED", "TLS", "BACKUP",
-              "ROLLED_BACK", "RELOADED", "REASON"}
+              "ROLLED_BACK", "RELOADED", "REASON", "SIZE", "FILES"}
     parsed: dict[str, str] = {}
     for raw in stdout.splitlines():
         line = raw.strip()
@@ -396,6 +398,39 @@ def update_session(
         "session_minutes": payload.session_minutes,
         "restart_required": True,
         "note": "已写入 .env，需要重启面板后生效；重启会短暂中断当前连接。",
+    }
+
+
+@router.post("/backup")
+def create_backup(db: Session = Depends(deps.get_db), user=Depends(ensure_superuser)):
+    """一键备份：PKI + server.conf + .env + app.db -> /var/backups/ovpn-oneclick。
+
+    只读操作：只产出 tar.gz（0600），不改任何配置、不重启任何服务，因此没有让
+    用户二次确认的必要。备份含 CA 私钥与 SECRET_KEY，所以文件权限是 0600。
+    """
+    from app.services import helper_client
+
+    try:
+        _rc, stdout, stderr = helper_client.run_helper(
+            "backup", BACKUP_BIN, BACKUP_TIMEOUT_SECONDS
+        )
+    except helper_client.HelperUnavailable as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    parsed = _parse_helper(stdout)
+    if parsed.get("RESULT") != "ok":
+        reason = parsed.get("REASON") or (stderr or "").strip()[:300] or "助手未返回成功结果"
+        safe_audit(db, getattr(user, "username", "?"), "panel.backup", None, f"failed: {reason}")
+        raise HTTPException(status_code=500, detail=f"备份失败：{reason}")
+
+    path = parsed.get("BACKUP", "")
+    safe_audit(db, getattr(user, "username", "?"), "panel.backup", path, "ok")
+    return {
+        "ok": True,
+        "backup": path,
+        "size": int(parsed.get("SIZE") or 0),
+        "files": int(parsed.get("FILES") or 0),
+        "note": "备份含 CA 私钥与 SECRET_KEY，文件权限 0600，请勿外传。",
     }
 
 

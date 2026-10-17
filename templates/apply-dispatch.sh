@@ -36,6 +36,8 @@ MAX_REQUEST_BYTES = 4096
 HELPERS = {
     "ACTION=panel-config": f"{LIB_DIR}/apply-panel-config",
     "ACTION=server-conf": f"{LIB_DIR}/apply-config",
+    # 一键备份：只读操作（产出 tar.gz），不改任何配置
+    "ACTION=backup": f"{LIB_DIR}/backup-now",
 }
 
 
