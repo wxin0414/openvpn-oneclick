@@ -137,6 +137,12 @@ def panel_block_shapes() -> set[str]:
         "network": "10.8.44.0",
         "netmask": "255.255.255.0",
         "topology": "subnet",
+        # 这四项是后加的托管项：样例里不给值，render 就不会输出它们，
+        # 对等性检查也就会误报"面板无法渲染"。样例必须覆盖全部托管标量。
+        "data_ciphers": "AES-256-GCM:AES-128-GCM",
+        "auth": "SHA256",
+        "user": "nobody",
+        "group": "nogroup",
     }
     shapes: set[str] = set()
     for mode, routes in (("full", []), ("split", ["10.10.0.0/16"]), ("full", [])):

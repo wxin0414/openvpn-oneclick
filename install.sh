@@ -681,9 +681,9 @@ key ${SERVER_DIR}/${SERVER_CN}.key
 dh ${SERVER_DIR}/dh.pem
 tls-crypt ${TA_KEY}
 
-data-ciphers AES-256-GCM:AES-128-GCM:CHACHA20-POLY1305
+# data-ciphers 与 auth 属于下面的托管块（面板可改），这里不再重复写：
+# 否则同名指令会并存（后者胜出），造成「面板显示 A、实际生效 B」。
 data-ciphers-fallback AES-256-GCM
-auth SHA256
 
 ifconfig-pool-persist ${LOG_DIR}/ipp.txt
 txqueuelen 1000
@@ -719,6 +719,8 @@ port ${VPN_PORT}
 proto ${VPN_PROTO}
 server ${VPN_NETWORK} ${VPN_NETMASK}
 topology subnet
+data-ciphers AES-256-GCM:AES-128-GCM:CHACHA20-POLY1305
+auth SHA256
 ${dns_lines}
 ${push_routes}
 ${ipv6_lines}
