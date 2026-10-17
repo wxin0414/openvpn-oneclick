@@ -25,7 +25,7 @@
 
 set -Eeuo pipefail
 
-SCRIPT_VERSION="1.4.3"
+SCRIPT_VERSION="1.4.4"
 
 # ---------------------------------------------------------------------------
 # 下载源（可用环境变量覆盖）
@@ -1126,6 +1126,27 @@ export_client() {
 # 面板部署
 # ---------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# ---------------------------------------------------------------------------
+# 同步安装器自身的副本
+# ---------------------------------------------------------------------------
+# 面板的「在线升级」优先使用 /usr/local/lib/ovpnmanager/install.sh 这份副本（服务器到
+# raw.githubusercontent.com 常常不稳）。此前这份副本只在"全新安装"的部署流程里复制，
+# 用 --adopt / --update 升级时**不会更新**——于是会出现"面板是新版、安装器副本是旧版"，
+# 下次在面板点升级就会把面板装回旧版本。实测在一台机器上副本停在 1.3.2、面板已 1.4.3。
+#
+# 因此这里在**入口处无条件同步**（仅 root、仅当内容不同），与具体模式无关。
+sync_self_copy() {
+  [ "$(id -u)" = "0" ] || return 0
+  [ -f "$0" ] || return 0
+  local dst=/usr/local/lib/ovpnmanager/install.sh
+  mkdir -p /usr/local/lib/ovpnmanager 2>/dev/null || return 0
+  if [ -f "$dst" ] && cmp -s "$0" "$dst" 2>/dev/null; then return 0; fi
+  install -D -m 0755 "$0" "$dst" 2>/dev/null || return 0
+  ok "已同步安装器副本到 $dst"
+}
+
+sync_self_copy
 WORK_DIR=""
 EXTRACT_DIR=""
 
