@@ -887,7 +887,13 @@ write_client_ovpn() { # write_client_ovpn <名称>
     # 注意：这里用 if 而不是 "[ ... ] && echo"，因为脚本开了 set -e，
     # 条件为假时 `[ ]` 返回非 0 会让整个脚本直接退出。
     if [ "$proto" = "udp" ]; then echo "explicit-exit-notify 1"; fi
-    if [ -n "$data_ciphers" ]; then echo "data-ciphers ${data_ciphers}"; fi
+    # 客户端必须显式带上 data-ciphers，且要与服务端一致。
+    # 原来这里是 `if [ -n "$data_ciphers" ]`：一旦 server.conf 里没有这一行（例如
+    # 面板把它改成托管项、旧行被 retire 成注释之后），客户端就会**整行省略**，
+    # 于是用 OpenVPN 自己的默认套件去协商，可能与服务端对不上而握手失败。
+    # 这里的默认值与 install.sh 写入托管块时的默认值、以及 OpenVPN 2.6 的内建默认
+    # 完全一致，所以即便 server.conf 暂时缺这一行也不会造成两端不一致。
+    echo "data-ciphers ${data_ciphers:-AES-256-GCM:AES-128-GCM:CHACHA20-POLY1305}"
     if [ -n "$cipher" ]; then echo "cipher ${cipher}"; fi
     echo "auth ${auth}"
     printf '\n<ca>\n%s\n</ca>\n' "$(cat "$ca")"
