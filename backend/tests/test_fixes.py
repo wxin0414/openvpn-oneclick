@@ -858,6 +858,40 @@ def main() -> int:
         locked = client.post("/api/auth/login", data={"username": "admin", "password": "nope"})
         expect("C17 连续失败后触发 429 限速", locked.status_code, 429)
 
+        # --------------------------------------------------------------
+        # K. 面板设置接口（/api/panel）
+        # --------------------------------------------------------------
+        # 这里只断言"不需要落地到系统"的部分：非法输入必须在调用 root 助手**之前**
+        # 就被拒（参数校验 -> 400/422），因此不会碰到 socket/sudo。
+        # 合法改动会真的去调助手，开发机上没有那条通道，故不在此覆盖——那部分由
+        # 真机验收负责（改端口往返、TLS 自签、坏配置回滚）。
+        k_unauth = client.get("/api/panel")
+        expect("K1 /api/panel 未认证返回 401", k_unauth.status_code, 401)
+
+        k_get = client.get("/api/panel", headers=headers)
+        expect("K2 GET /api/panel 返回 200", k_get.status_code, 200)
+        k_body = k_get.json() if k_get.status_code == 200 else {}
+        for k_field in ("port", "server_name", "allow_mode", "allow_cidrs",
+                        "tls_mode", "session_minutes", "current_url"):
+            check(f"K2 GET /api/panel 含字段 {k_field}", k_field in k_body, str(sorted(k_body)))
+
+        for k_payload, k_label in (
+            ({"port": 0}, "端口 0"),
+            ({"port": 70000}, "端口 70000"),
+            ({"server_name": "bad name!"}, "非法域名"),
+            ({"allow_mode": "nope"}, "非法放行模式"),
+            ({"tls_mode": "nope"}, "非法 TLS 模式"),
+            ({"tls_mode": "existing"}, "existing 模式但没给证书路径"),
+            ({"allow_mode": "custom"}, "custom 模式但没给 CIDR"),
+        ):
+            k_st = client.patch("/api/panel", json=k_payload, headers=headers).status_code
+            check(f"K3 越界输入被拒：{k_label} -> {k_st}", k_st in (400, 422), f"status={k_st}")
+
+        k_sess = client.post("/api/panel/session", json={"session_minutes": 5}, headers=headers)
+        expect("K4 会话有效期低于下限（5 分钟）被拒", k_sess.status_code, 422)
+        k_sess_hi = client.post("/api/panel/session", json={"session_minutes": 99999}, headers=headers)
+        expect("K4 会话有效期高于上限被拒", k_sess_hi.status_code, 422)
+
     # ------------------------------------------------------------------ #
     print("\n=== G. 索引 / WAL / CRL 行为 / 配置派生 ===")
     import sqlite3
