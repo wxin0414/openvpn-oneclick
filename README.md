@@ -177,7 +177,7 @@ sudo nginx -t && sudo systemctl reload nginx
 | 分组 | 项目 | 写入的指令 |
 | --- | --- | --- |
 | 基本 | 监听端口 1-65535 | `port` |
-| 基本 | 协议 `udp` / `tcp` | `proto`；UDP 时另生成 `fast-io` 与 `explicit-exit-notify 1`，改回 TCP 时这两条不再生成 |
+| 基本 | 协议 `udp` / `tcp` | `proto`；UDP 时另生成 `explicit-exit-notify 1`，改回 TCP 时这条不再生成（注：`fast-io` 在 OpenVPN 2.5+ 已是空操作，不再写入） |
 | 隧道与路由 | 全局代理 / 分流 | 全局：`push "redirect-gateway def1 bypass-dhcp"`；分流：按列表逐条 `push "route <网段> <掩码>"` |
 | 隧道与路由 | 分流路由（CIDR） | 同上，仅分流模式生效；全局代理模式下提交的路由会被忽略并回显说明 |
 | 隧道与路由 | 屏蔽 IPv6 | `push "ifconfig-ipv6 ..."`、`push "redirect-gateway ipv6"`、`block-ipv6` |
@@ -190,6 +190,10 @@ sudo nginx -t && sudo systemctl reload nginx
 | 客户端 | 允许同名 CN | `duplicate-cn` |
 | 网段 | VPN 网段 / 子网掩码 | `server <网段> <掩码>` |
 | 网段 | topology | `topology subnet` / `net30` / `p2p` |
+| 加密 | 数据加密套件 `data-ciphers` | `data-ciphers`（冒号分隔，仅接受 AES-256-GCM / AES-128-GCM / CHACHA20-POLY1305 及其组合） |
+| 加密 | `auth` 摘要算法 | `auth`（AEAD 套件下不参与数据面，保留以兼容旧客户端） |
+| 权限 | 运行用户 / 组 | `user` / `group`（改错会让服务起不来，保存前有二次确认，助手会自动回滚） |
+| 日志 | `log-append` / `status` | 两个绝对路径，**必须是 `/var/log/openvpn/` 下**：OpenVPN 以降权用户运行，只有该目录被授权写入 |
 
 保存时由接口侧做最终校验，不通过返回 400 并给出具体中文原因：
 
@@ -198,15 +202,15 @@ sudo nginx -t && sudo systemctl reload nginx
 - 网段必须是**网段地址**：`10.9.0.7` + `255.255.0.0` 会被明确拒绝而不是悄悄规范化；掩码必须连续且前缀长度 ≥ 8；网段与掩码必须匹配。
 - `PATCH` 只带发生变化的字段，未提交的项沿用当前值；提交只读项或任何未知键一律 400。
 
-页面底部把这些指令列为**只读**，只展示不提供编辑：`management` 与 `status-version`（面板靠它们读在线状态）、`crl-verify`（吊销是否生效全靠它）、`client-config-dir`（固定 IP 与按客户端路由）、tls 模式（`tls-crypt` / `tls-auth`，与密钥和既有客户端绑定）、`data-ciphers` / `auth` / `cipher`（改错会让既有客户端握手失败）。
+页面底部把这些指令列为**只读**，只展示不提供编辑：`management` 与 `status-version`（面板靠它们读在线状态）、`crl-verify`（吊销是否生效全靠它）、`client-config-dir`（固定 IP 与按客户端路由）、tls 模式（`tls-crypt` / `tls-auth`，与密钥和既有客户端绑定）、`cipher`（旧版对称加密，与 `data-ciphers` 冲突）。`data-ciphers` 与 `auth` 是**可编辑的**（见上表），改错会让既有客户端握手失败，保存前会提示需要重新导出客户端配置。
 
 **改端口或协议会让已发出的客户端配置全部失效。** 页面在保存前会弹一次确认说明这一点；保存后结果卡片会标出「客户端配置受影响」并给出「重新导出全部客户端」按钮。该按钮把所有未吊销、未被禁用的客户端一次性重新导出（同步执行，只读 PKI 与 tls 密钥，不跑 easyrsa / openssl），逐个捕获异常并回报成功与失败清单——但**导出的文件仍需要你自己重新分发**。
 
 **改 VPN 网段、掩码或 topology 会连带改动周边。** 助手会先删掉旧网段的 MASQUERADE 规则、按新网段重建 NAT 脚本，再把 nginx 站点配置里的第一条 `allow` 改成新网段并跑 `nginx -t` 校验，最后重启服务；已有客户端的固定 IP 需要你同步调整。无论改哪一项，助手在成功路径的最后都会重启一次 OpenVPN 并轮询 `is-active`（默认最多等 20 秒），因此每次保存都会让在线客户端短暂断开一次。
 
-**安全模型：面板从不直接写系统文件。** 面板以非 root 运行，`server.conf`、NAT 脚本、nginx 站点配置都归 root。流程是：面板把"想改成的样子"渲染成一份完整候选配置写进自己的数据目录（`/opt/ovpnmanager/backend/data/server.conf.candidate`，`0600`）→ 执行 `sudo -n /usr/local/lib/ovpnmanager/apply-config`（**不带任何参数**，路径全部来自 root 所有的 `/etc/ovpn-oneclick/apply.conf`）→ 助手以 root 校验、备份、原子替换、按需重建 NAT / nginx、重启并等待就绪，失败整体回滚 → 面板解析助手输出的 `RESULT=` / `BACKUP=` / `RESTARTED=` / `ROLLED_BACK=` / `NETWORK_CHANGED=` / `REASON=` 回报页面。
+**安全模型：面板从不直接写系统文件。** 面板以非 root 运行，`server.conf`、NAT 脚本、nginx 站点配置都归 root。流程是：面板把"想改成的样子"渲染成一份完整候选配置写进自己的数据目录（`/opt/ovpnmanager/backend/data/server.conf.candidate`，`0600`）→ 通过 **systemd socket 激活**把候选交给 root 助手（`/run/ovpn-oneclick/apply.sock` → `apply@.service`，以 root 运行；**不带任何参数**，路径全部来自 root 所有的 `/etc/ovpn-oneclick/apply.conf`）。注意：面板进程带 `NoNewPrivileges=1`，**任何 `sudo` 都会被内核拒绝**，所以所有提权动作（配置写入、服务启停、备份、恢复、升级）都走这条路，`sudo` 只是没有 socket 时的回退→ 助手以 root 校验、备份、原子替换、按需重建 NAT / nginx、重启并等待就绪，失败整体回滚 → 面板解析助手输出的 `RESULT=` / `BACKUP=` / `RESTARTED=` / `ROLLED_BACK=` / `NETWORK_CHANGED=` / `REASON=` 回报页面。
 
-助手的校验有四条，缺一不可：候选文件必须存在且是普通文件、非空、不超过 128 KB、不含 NUL、属主是面板用户且不是组/其他用户可写；托管块内只能出现白名单指令（`port proto server topology mssfix sndbuf rcvbuf keepalive client-to-client max-clients duplicate-cn block-ipv6 push fast-io explicit-exit-notify`），`push` 的载荷还要逐个匹配允许的形态；托管块之外不得引入当前配置里没有的指令；候选也不能让既有指令凭空消失——只允许把它们注释成 `# [ovpn-oneclick retired] <原行>`。
+助手的校验有四条，缺一不可：候选文件必须存在且是普通文件、非空、不超过 128 KB、不含 NUL、属主是面板用户且不是组/其他用户可写；托管块内只能出现白名单指令（`port proto server topology data-ciphers auth user group log-append status mssfix sndbuf rcvbuf keepalive client-to-client max-clients duplicate-cn block-ipv6 push explicit-exit-notify`），`push` 的载荷还要逐个匹配允许的形态；托管块之外不得引入当前配置里没有的指令；候选也不能让既有指令凭空消失——只允许把它们注释成 `# [ovpn-oneclick retired] <原行>`。
 
 因此 `server.conf` 里那段托管块以外的内容不受面板影响，反过来说：**手工编辑托管块里的行没有意义**，每次保存都会按表单内容整段重新生成。若 `server.conf` 不是本安装器写的（例如 `--adopt` 采纳来的），它没有托管块；第一次保存时面板会插入托管块、把冲突的旧指令注释退役并先备份，页面会提前给出提醒。
 
@@ -225,6 +229,54 @@ sudo nginx -t && sudo systemctl reload nginx
 | `sudo bash install.sh --uninstall` | 卸载服务与面板（二次确认，软件包保留） |
 
 吊销不会重启 OpenVPN：脚本只重新生成 CRL（OpenVPN 检测到文件变化后会重读它），再通过 management 接口 `kill` 掉这个客户端的会话。若 management 端口正被面板占用，它会如实告诉你未能确认断开，此时可在面板里对该客户端执行「强制下线」。
+
+## 面板自身设置
+
+入口 `http://<服务器地址>:5698/ovpnmanager/panel`（菜单「面板设置」），对应 `GET` / `PATCH /api/panel`，仅超级管理员。
+
+| 项目 | 说明 |
+| --- | --- |
+| 监听端口 | 改完立即重建 nginx 站点并 reload，**旧端口当即失效** |
+| 绑定域名 | nginx `server_name`，默认 `_` |
+| 放行来源 | `public`（允许所有来源）或指定 CIDR 列表。面板一旦公网可达，请务必同时开启 TLS |
+| TLS | `off` / `self-signed` / `existing`；`self-signed` 会现场生成自签证书并切到 HTTPS |
+| 管理员账号口令 | 改用户名与密码，立即生效 |
+| 会话有效期 | 5–10080 分钟，写入 `.env` 后重启面板 |
+
+与「服务端设置」走同一条 socket 助手路径：助手先写 nginx 配置、跑 `nginx -t`，通过才 reload，失败整体回滚。改端口或 TLS 会让当前页面地址失效，保存后按提示用新地址访问。
+
+## 网络转发（ip_forward 与 NAT 出口网卡）
+
+入口「面板设置 → 网络转发」，对应 `GET` / `POST /api/panel/network`。
+
+- **ip_forward 开关。** 关闭等于客户端不能出网，但 OpenVPN 服务本身**不会报错**（状态仍是 active）——这是最容易误判为"服务正常"的故障，所以界面上关闭前会二次确认。
+- **NAT 出口网卡。** 下拉里只列真实存在的接口；助手还会交叉验证该接口**确有默认路由**，否则拒绝（改错了客户端立刻失去出网，而重启服务发现不了）。
+- 规则同时写进 `ovpn-oneclick-nat.service`，开机自恢复。
+
+## 备份与恢复
+
+**一键备份。** 面板「面板设置 → 备份」，或 `POST /api/panel/backup`。备份四样真正无法重建的东西：PKI（`/etc/openvpn/easy-rsa`）、`server.conf`、`backend/.env`（`SECRET_KEY` 与口令）、`backend/data/app.db`。产物在 `/var/backups/ovpn-oneclick/manual-<时间戳>.tar.gz`，权限 `0600`（内含 CA 私钥与 `SECRET_KEY`，**不要外传**），只保留最近 10 份。备份列表的索引在 `/etc/ovpn-oneclick/backup-index.jsonl`（`0644`，只含路径/大小/时间，不含密钥内容）。
+
+**恢复。** 在备份列表点「恢复」，需要**手打 `RESTORE`**。助手的动作顺序：再备份一次当前状态 → 把现有四项整体 `mv` 到临时目录（可原子还原）→ 解包 → 校验 `server.conf` 存在 → 重启 OpenVPN 并要求连续 4 秒 `active`；任何一步失败都整体还原并重启。恢复完成后面板会延迟 3 秒自动重启（数据库已换掉，不重启读的还是旧库）。
+
+## 在线升级（面板内）
+
+面板「当前状态 → 检查更新 / 升级」。
+
+- **检查更新**只读：拉本仓库 `VERSION.txt` 与已安装版本比对，按数字逐段比较。
+- **升级**需要手打 `UPGRADE`，且是**异步**的：接口立刻返回，助手起一个脱离会话的后台进程执行 `install.sh --update`，进度写 `/etc/ovpn-oneclick/upgrade.state`，前端轮询。升级过程中面板会重启，所以轮询期间的请求失败属正常。
+- 优先使用安装时留下的本地安装器副本 `/usr/local/lib/ovpnmanager/install.sh`——实测服务器到 `raw.githubusercontent.com` 并不稳定，只有副本缺失时才回退下载。
+- 升级**不会自动降级**；失败时配置与证书都在备份里，按上一节恢复即可。
+
+## 性能调优（安装时自动完成）
+
+安装脚本写入 `/etc/sysctl.d/99-ovpn-oneclick.conf` 并立即生效：
+
+- `net.ipv4.ip_forward=1`
+- **socket 缓冲抬到 4 MiB**（`rmem_max` / `wmem_max`）。系统默认只有 208 KiB，会**静默截断** `server.conf` 里的 `sndbuf` / `rcvbuf`（默认 384 KiB），并在高延迟客户端上直接压住吞吐。
+- 内核提供 `tcp_bbr` 时启用 **BBR + fq**（对高 RTT、有丢包的链路明显优于 cubic）；不提供则保持原值并打印提示。
+
+参考数据：单核 AES-256-GCM 约 1.68 GB/s（≈13 Gbps），**加密从来不是瓶颈**，真正的上限是链路带宽。可用 `bash install.sh --perf-report` 之外的第三方工具实测；本仓库的实测方法与结论记录在 `docs/` 中。
 
 ## 维护
 

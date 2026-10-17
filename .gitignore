@@ -48,3 +48,7 @@ Thumbs.db
 *.pem
 *.key
 !backend/.env-example
+# ============ verify.sh 的测试残留 ============
+ovpn-smoke-*/
+ovpn-parity-*/
+
