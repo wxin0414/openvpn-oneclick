@@ -4,6 +4,37 @@
 
 关于版本号：仓库历史中 `VERSION.txt` 由 `1.2.2` 直接跳到 `1.2.4`，没有 1.2.3 的独立提交，因此这里没有 `[1.2.3]` 条目。1.2.2 与 1.2.3 都因下列安装缺陷无法在 Debian 12 上完成安装，修复集中在 1.2.4。
 
+## [1.4.5] — 2026-10-18
+
+文档重整 + 修复页脚版本号永不更新。
+
+### 修复 — 面板右下角版本号停在旧值
+
+页脚读的是 `frontend/package.json` 的 `version`，而发版流程只改 `VERSION.txt` 与
+`install.sh` 的 `SCRIPT_VERSION`。于是页脚长期停在 `1.4.0`，实际已经是 1.4.4 —— 属于
+"只有用户会看到、作者从来不看"的那类偏差。
+
+改法是**消除多处来源**，而不是"记得改"：
+
+- `pack.sh` 在打包时把版本写进 `backend/app/_build_version.py`（`VERSION = "x.y.z"`），
+  后端 `app/version.py` 优先读它，读不到才去探测文件。**先试过"把 VERSION.txt 拷进制品"，
+  但安装脚本在 `--adopt` 路径上没拷到，页脚仍显示 unknown**，所以改成编译期常量——
+  它不会因为安装路径变化而丢失
+- 新增 `backend/app/version.py`：从制品/源码布局读同一个文件，导出 `APP_VERSION`
+- 新增 `GET /api/health/version`（无需登录，只返回版本字符串）
+- 前端页脚改为启动时向后端取；`package.json` 仅作请求失败时的兜底
+- 新增 `tests/check_versions.py` 并接入 CI：`VERSION.txt` / `SCRIPT_VERSION` /
+  `package.json` 三者不一致就失败
+
+### 文档
+
+- `README.md` 重写：语言切换行、CI/Release/License 徽章、一段讲清"和只装脚本的项目区别"、
+  特性清单、一键安装（含国内网络下载不动时的替代方案）、**面板能改什么**表格、
+  日常命令、安全模型（`<details>` 折叠：`NoNewPrivileges` 与 socket 激活链路）、
+  Docker、明确未实现的功能、已验证环境、致谢。
+- 新增 `README.en.md`（英文镜像）。
+- **删除 `docs/` 下 5 个过时文档与 6 张截图**（firewalld 端口、企业内网 TCP 指南、
+  UI 设计方案、客户端说明、内网双向访问）：内容已过时，且与 README 重复。
 ## [1.4.4] — 2026-10-18
 
 修复：用 `--adopt` / `--update` 升级时，安装器自身的副本不更新——会导致"面板是新版、副本是旧版"。

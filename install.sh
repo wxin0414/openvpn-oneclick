@@ -25,7 +25,7 @@
 
 set -Eeuo pipefail
 
-SCRIPT_VERSION="1.4.4"
+SCRIPT_VERSION="1.4.5"
 
 # ---------------------------------------------------------------------------
 # 下载源（可用环境变量覆盖）
@@ -1222,6 +1222,12 @@ deploy_panel() {
     mkdir -p "${PANEL_HOME}/backend"
     find "${PANEL_HOME}/backend" -mindepth 1 -maxdepth 1 ! -name '.env' ! -name 'data' ! -name '.venv' -exec rm -rf {} +
     cp -a "${src}/backend/." "${PANEL_HOME}/backend/"
+  # 版本号的唯一来源：后端 app/version.py 读它，面板右下角再向后端要；
+  # 不拷过来页脚只会显示 unknown。制品里它在包根目录（ovpnmanager-panel/VERSION.txt），
+  # 但不同打包方式位置可能差一层，两个位置都试。
+  for _v in "${src}/VERSION.txt" "${src}/../VERSION.txt"; do
+    if [ -f "$_v" ]; then install -D -m 0644 "$_v" "${PANEL_HOME}/VERSION.txt"; break; fi
+  done
   fi
   mkdir -p "${PANEL_HOME}/backend/data"
   TPL_DIR="${src}/templates"

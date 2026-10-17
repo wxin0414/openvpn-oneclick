@@ -89,6 +89,10 @@ jobs:
         run: python3 tests/check_templates.py
       - name: env 模板与面板配置契约
         run: python3 tests/check_env_contract.py
+      # 版本号曾在三处漂移（VERSION.txt / SCRIPT_VERSION / package.json），
+      # 导致面板页脚长期显示旧版本。
+      - name: 版本号一致
+        run: python3 tests/check_versions.py
 
   backend:
     name: 面板后端（接口与逻辑断言）

@@ -82,10 +82,28 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from "vue";
+import { computed, ref, watch, onMounted} from "vue";
 import { useRoute, useRouter } from "vue-router";
 
-import { version } from "../package.json";
+import { version as pkgVersion } from "../package.json";
+
+// 版本以**后端**为准：发版只改 VERSION.txt，前端若读 package.json 就会永远停在旧值
+// （实测页脚停在 1.4.0）。package.json 的值只作为请求失败时的兜底。
+const version = ref(pkgVersion);
+
+// 页脚版本以后端为准（见 backend/app/version.py）。请求失败就保持 package.json 的兜底值，
+// 不因为一个版本号把整个界面卡住。
+onMounted(async () => {
+  try {
+    const res = await fetch("/api/health/version", { cache: "no-store" });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.version) version.value = data.version;
+    }
+  } catch {
+    /* 保持兜底值 */
+  }
+});
 import { useBreakpoint } from "./composables/useBreakpoint";
 
 const route = useRoute();

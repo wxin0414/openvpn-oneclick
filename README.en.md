@@ -1,66 +1,154 @@
 # ovpn-oneclick
 
-One command installs an OpenVPN server **and** a web control panel on Debian/Ubuntu.
-Everything the panel can change goes through a root helper: validate -> back up -> replace
-atomically -> restart -> roll back if the service does not come up. SSH is only needed as a
-last resort.
+[中文](README.md) | **English**
 
-> Chinese documentation: [README.md](README.md)
+[![CI](https://github.com/wxin0414/openvpn-oneclick/actions/workflows/ci.yml/badge.svg)](https://github.com/wxin0414/openvpn-oneclick/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/wxin0414/openvpn-oneclick?display_name=tag)](https://github.com/wxin0414/openvpn-oneclick/releases)
+[![License](https://img.shields.io/github/license/wxin0414/openvpn-oneclick)](LICENSE)
 
-## Quick start
+One command installs an OpenVPN server **plus** a web control panel. Change configuration
+without SSH: the panel renders a candidate config, hands it to a root helper that validates,
+backs up, replaces atomically, restarts, and rolls the whole change back if the service does
+not come up.
+
+> Unlike "just an install script" projects, the value here is **what happens after install**:
+> certificates, client distribution, config changes, rollback, self-check, and read-only
+> operator accounts all live in the panel.
+
+---
+
+## Features
+
+- **One-command install**: detect OS, install packages, build PKI, write config, set up NAT, start services, deploy the panel, self-check
+- **29 editable server settings**: port, protocol, VPN subnet, pushed DNS, split tunnel routes, ciphers, TLS floor, log level, and more
+- **Full client lifecycle**: issue, revoke, export, fixed IP, per-client routes, force disconnect
+- **One-time links and QR codes**: hand a colleague a link that works once; only the token hash is stored
+- **Observability**: traffic history chart, certificate expiry warnings, 11-item self-check with actionable hints
+- **Rollback**: config history with unified diff and one-click restore (which backs up first)
+- **Read-only role**: `viewer` can see everything; every write is rejected with 403 by a global middleware
+- **Privilege separation**: the panel runs unprivileged with `NoNewPrivileges=1` and obtains root only through systemd socket activation
+
+---
+
+## Install
+
+Debian 12 / Ubuntu 22.04+, root, with **1194/udp** (OpenVPN) and **5698/tcp** (panel) reachable.
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/wxin0414/openvpn-oneclick/main/install.sh) --auto
-# or, if your network cannot reach raw.githubusercontent.com, copy the repo to the server:
-bash install.sh --auto
 ```
 
-Then open `http://<host>:5698/ovpnmanager/`. The admin password is printed at the end of the
-install and stored in `/opt/ovpnmanager/backend/.env`.
+<details>
+<summary>If your server cannot reach GitHub (common in mainland China)</summary>
 
-Docker is also supported: `docker compose up -d --build` (see `docker-compose.yml`).
+Copy the repository to the server and run the installer from there. If
+`panel/ovpnmanager-panel.tar.gz` sits next to `install.sh`, the installer uses it and never
+downloads the payload. The installer also adds apt timeouts and switches to a domestic mirror
+only when the official one is measurably slower (original file backed up first).
+
+</details>
+
+The admin password is printed at the end and also stored in
+`/opt/ovpnmanager/backend/.env` (`DEFAULT_ADMIN_PASSWORD`, mode `0600`).
+
+```text
+Panel : http://<your-ip>:5698/ovpnmanager/
+VPN   : udp://<your-ip>:1194
+```
+
+> Remember the cloud **security group** — it is separate from the host firewall.
+
+---
 
 ## What the panel manages
 
-- **Server settings (29 editable, 24 managed directives)**: port, protocol, VPN network,
-  topology, pushed DNS, full-tunnel vs split-tunnel and split routes, IPv6 blackhole,
-  data-ciphers, auth, `user`/`group`, log/status paths, `reneg-sec`, `tls-version-min`,
-  `verb`/`mute`, `inactive`, `mssfix`, `sndbuf`/`rcvbuf`, keepalive, client-to-client,
-  max-clients, duplicate-cn, `push "block-outside-dns"`.
-- **Clients**: create/revoke/export, optional fixed IP (validated against the VPN subnet),
-  per-client routes, force-disconnect, one-time download link with a QR code.
-- **Operations**: service start/stop/restart, ip_forward and NAT egress, backup/restore,
-  online upgrade, traffic history charts, certificate expiry warnings, config history with
-  diff and one-click rollback, and an 11-item self-check page.
+| Area | Editable | Notes |
+| --- | --- | --- |
+| Listen | `port`, `proto` | Rebuilds nginx allow rules and NAT; old port stops working immediately |
+| Tunnel | VPN subnet, netmask, `topology` | Changing the subnet rebuilds NAT and nginx rules; fixed IPs must be adjusted |
+| Routing | pushed DNS (2), full vs split tunnel + split routes, `block-ipv6` | Split routes are pushed as `push "route"` |
+| Crypto | `data-ciphers`, `auth`, `tls-version-min` | Wrong values break handshakes; the UI warns that clients must be re-exported |
+| Session | `keepalive`, `reneg-sec`, `inactive`, `max-clients`, `duplicate-cn`, `client-to-client` | — |
+| Performance | `mssfix`, `sndbuf`, `rcvbuf` | sysctl and congestion control tuned at install |
+| Privileges | `user`, `group` | If the service fails to start, the change is rolled back |
+| Logs | `log-append`, `status`, `verb`, `mute` | Both paths must be under `/var/log/openvpn/` |
+| DNS leak | `push "block-outside-dns"` | Only meaningful for Windows clients |
 
-## Design notes
+Read-only display: `management`, `status-version`, `crl-verify`, `client-config-dir`, TLS mode, `cipher`.
 
-- **The panel never writes system files directly.** It renders a candidate config and hands it
-  to a root helper through systemd socket activation (`apply.socket` -> `apply@.service`,
-  no arguments). The helper is the only component that validates, backs up, replaces and
-  restarts. Note: the panel unit has `NoNewPrivileges=1`, so **sudo cannot work inside the
-  panel process** — the socket is the channel.
-- **Readiness, not exit codes.** After a restart the helper requires the unit to stay `active`
-  for several consecutive seconds; otherwise it rolls the whole change back.
-- **Managed block.** Editable directives live between `>>> ovpn-oneclick managed >>>` markers.
-  Anything outside is preserved verbatim; directives that disappear are retired as comments,
-  never silently dropped.
+Other pages: clients (create/revoke/export/share with QR and one-time link, per-platform client
+downloads), panel settings (port, domain, allowed CIDRs, TLS, admin credentials, backup/restore,
+online upgrade, self-check), server settings (the table above plus config history with diff and
+rollback), dashboard (online count, traffic chart, certificate expiry, connection events).
 
-## Requirements
+---
 
-Debian 12 / Ubuntu 22.04+ (x86_64 or arm64), root, and open ports **1194/udp** (OpenVPN) and
-**5698/tcp** (panel). A TUN device and `NET_ADMIN` are required in containers.
+## Security model
 
-## Verified environment
+<details>
+<summary>Why the panel never uses sudo</summary>
 
-Debian 12 (kernel 6.1), OpenVPN 2.6, nginx, single-node KVM. CI runs the installer assertions,
-the apply/panel contract checks and 239 backend assertions on every push.
+Cloud images often set `NoNewPrivileges=1` on the panel unit and it cannot be turned off from
+the unit file, so **any `sudo` inside the panel process is refused by the kernel**:
+
+```text
+sudo: The "no new privileges" flag is set, which prevents sudo from running as root.
+```
+
+All privileged actions therefore go through **systemd socket activation**:
+
+```text
+panel -> /run/ovpn-oneclick/apply.sock (0660, group = panel user)
+      -> apply.socket (Accept=yes; systemd starts apply@.service as root)
+      -> apply-dispatch (Python; dispatches on ACTION= to fixed scripts, takes no arguments)
+      -> validate -> back up -> replace atomically -> restart -> wait for readiness -> roll back on failure
+```
+
+The helper rejects non-regular files, empty files, anything over 128 KB, NUL bytes, files not
+owned by the panel user, group/world-writable files, and any directive outside the managed
+block's allow-list. Existing directives may only be retired as comments, never silently dropped.
+
+"Failed to start" is decided by requiring the unit to stay `active` for several consecutive
+seconds rather than by trusting the exit code of `systemctl restart`.
+
+</details>
+
+---
+
+## Docker (optional)
+
+```bash
+docker compose up -d --build
+```
+
+> The image build has **not** been verified end-to-end on a real machine yet (the author's
+> target host has no Docker daemon). `sudo bash docker/verify-offline.sh` performs the offline
+> checks: config generation, directive validity, panel parsing, `nginx -t`, compose fields, and
+> that helper install names match what sudoers and the panel expect.
+
+---
+
+## Deliberately not implemented
+
+- **Rebuilding the CA**: invalidates every existing client certificate
+- **Rotating the tls-crypt key**: invalidates every existing `.ovpn` (the key is inlined)
+
+Both are all-or-nothing and irreversible, so a button would do more harm than good. Use the
+certificate expiry warnings to re-issue early, and config history to roll back mistakes.
+
+---
+
+## Verified on
+
+Debian 12 (kernel 6.1), OpenVPN 2.6, single KVM host, consumer links in mainland China.
+CI runs the installer assertions, the helper/panel contract checks and 239 backend assertions.
+
+## Credits
+
+- [hwdsl2/openvpn-install](https://github.com/hwdsl2/openvpn-install) — installer structure and UX reference
+- [slc14211421/ovpnmanager](https://github.com/slc14211421/ovpnmanager) — original panel that inspired this one (rewritten here)
+- [Nyr/openvpn-install](https://github.com/Nyr/openvpn-install) — the earlier OpenVPN installer
 
 ## License
 
-See [LICENSE](LICENSE). Third-party components keep their own licenses:
-
-- [hwdsl2/openvpn-install](https://github.com/hwdsl2/openvpn-install) — the provisioning ideas
-  this installer's structure follows.
-- [slc14211421/ovpnmanager](https://github.com/slc14211421/ovpnmanager) — the original panel
-  this project was inspired by; the panel here is a rewrite.
+See [LICENSE](LICENSE) and [DISCLAIMER.md](DISCLAIMER.md).

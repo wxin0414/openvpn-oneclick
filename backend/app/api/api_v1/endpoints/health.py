@@ -58,3 +58,9 @@ def selfcheck(user=Depends(get_current_user)) -> dict:
     from app.services import selfcheck as selfcheck_service
 
     return selfcheck_service.run_all()
+
+@router.get("/version", summary="面板版本（无需登录，供页脚显示）")
+def app_version() -> dict:
+    from app.version import APP_VERSION
+
+    return {"version": APP_VERSION}

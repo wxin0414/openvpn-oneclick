@@ -42,6 +42,13 @@ find "${BUILD}" -type f \( -name '*.db' -o -name '*.db-wal' -o -name '*.db-shm' 
 
 info "复制前端构建产物"
 cp -a "${PANEL_SRC}/frontend/ovpnmanager/." "${BUILD}/frontend/"
+# 版本号：直接写进 Python 模块，安装时不可能漏拷（早先靠 cp VERSION.txt，路径一变就丢）
+VER="$("$(command -v cat)" "${ROOT}/VERSION.txt" 2>/dev/null | tr -d "[:space:]")"
+VER="${VER:-unknown}"
+printf '# 由 pack.sh 生成，不要手改。\nVERSION = "%s"\n' "$VER" > "${BUILD}/backend/app/_build_version.py"
+cp -a "${ROOT}/VERSION.txt" "${BUILD}/ovpnmanager-panel/VERSION.txt" 2>/dev/null || true
+# 版本号的唯一来源：后端 app/version.py 读这个文件，前端再向后端要
+cp -a "${ROOT}/VERSION.txt" "${BUILD}/VERSION.txt"
 
 info "复制模板"
 cp -a "${ROOT}/templates/." "${BUILD}/templates/"
