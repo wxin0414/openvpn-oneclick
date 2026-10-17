@@ -59,6 +59,11 @@ NET_BIN = os.environ.get("NET_BIN", "/usr/local/lib/ovpnmanager/net-control")
 NET_TIMEOUT_SECONDS = int(os.environ.get("NET_TIMEOUT_SECONDS", "120"))
 NET_STATE = os.environ.get("NET_STATE_FILE", "/etc/ovpn-oneclick/net.state")
 NET_CANDIDATE = Path(os.environ.get("NET_CANDIDATE", "/opt/ovpnmanager/backend/data/net.candidate"))
+# 升级检查读取的远端地址（固定，不接受调用方传入）
+UPGRADE_VERSION_URL = os.environ.get(
+    "UPGRADE_VERSION_URL",
+    "https://raw.githubusercontent.com/wxin0414/openvpn-oneclick/main/VERSION.txt",
+)
 PANEL_DATA_DIR = Path(os.environ.get("PANEL_DATA_DIR", "/opt/ovpnmanager/backend/data"))
 CANDIDATE = PANEL_DATA_DIR / "panel.candidate"
 WEB_NAME = "ovpnmanager"
@@ -643,6 +648,52 @@ def update_network(
         "net": parsed.get("NET", ""),
         "warning": parsed.get("WARNING", ""),
         "note": "已应用。NAT 规则已重建并写入 ovpn-oneclick-nat.service（开机自恢复）。",
+    }
+
+
+@router.get("/upgrade/check")
+def check_upgrade(_=Depends(ensure_superuser)):
+    """检查是否有新版本。只读：拉远端 VERSION.txt 比对，不下载、不执行任何东西。
+
+    远端地址固定在本仓库的 raw 上（不接收调用方传入的 URL，避免变成 SSRF 跳板）。
+    网络不通时如实返回 error，而不是假装"已是最新"。
+    """
+    import urllib.error
+    import urllib.request
+
+    state = _read_kv_file("/etc/ovpn-oneclick/state.conf")
+    current = state.get("INSTALLED_VERSION") or "unknown"
+    latest = ""
+    error = ""
+    try:
+        request = urllib.request.Request(  # noqa: S310 - 固定 https 地址
+            UPGRADE_VERSION_URL, headers={"User-Agent": "ovpn-oneclick-panel"}
+        )
+        with urllib.request.urlopen(request, timeout=8) as response:  # noqa: S310
+            latest = response.read(64).decode("utf-8", "replace").strip()
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        error = f"无法获取最新版本：{exc}"
+
+    def _tuple(text: str) -> tuple[int, ...]:
+        parts = []
+        for piece in text.split("."):
+            digits = "".join(ch for ch in piece if ch.isdigit())
+            parts.append(int(digits) if digits else 0)
+        return tuple(parts)
+
+    update_available = False
+    if latest and current != "unknown":
+        try:
+            update_available = _tuple(latest) > _tuple(current)
+        except ValueError:
+            update_available = False
+
+    return {
+        "current": current,
+        "latest": latest,
+        "update_available": update_available,
+        "error": error,
+        "note": "检查会读取本仓库的 VERSION.txt，只比对版本号；真正升级会先做备份。",
     }
 
 

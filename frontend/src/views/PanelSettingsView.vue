@@ -5,6 +5,7 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import {
   createBackup,
   getPanelSettings,
+  checkUpgrade,
   getNetwork,
   listBackups,
   restartPanel,
@@ -303,6 +304,32 @@ async function saveNetwork() {
   }
 }
 
+// ---- 版本检查 ----
+const upgrade = reactive({ current: "", latest: "", update_available: false, error: "" });
+const checking = ref(false);
+
+async function doCheckUpgrade() {
+  checking.value = true;
+  try {
+    const { data } = await checkUpgrade();
+    upgrade.current = data.current || "";
+    upgrade.latest = data.latest || "";
+    upgrade.update_available = !!data.update_available;
+    upgrade.error = data.error || "";
+    if (upgrade.error) {
+      ElMessage.error(upgrade.error);
+    } else if (upgrade.update_available) {
+      ElMessage.warning(`有新版本：${upgrade.current} → ${upgrade.latest}`);
+    } else {
+      ElMessage.success(`已是最新版本（${upgrade.current}）`);
+    }
+  } catch (err) {
+    ElMessage.error(err?.response?.data?.detail || "检查更新失败");
+  } finally {
+    checking.value = false;
+  }
+}
+
 function fmtSize(bytes) {
   const n = Number(bytes) || 0;
   if (n >= 1048576) return `${(n / 1048576).toFixed(1)} MB`;
@@ -482,6 +509,13 @@ onMounted(() => {
         <el-descriptions-item label="访问地址">{{ currentUrl || "—" }}</el-descriptions-item>
         <el-descriptions-item label="最近应用">{{ appliedAt || "—" }}</el-descriptions-item>
         <el-descriptions-item label="最近备份">{{ lastBackup || "—" }}</el-descriptions-item>
+        <el-descriptions-item label="版本">
+          {{ upgrade.current || "未检查" }}
+          <span v-if="upgrade.latest && upgrade.latest !== upgrade.current">
+            → 最新 {{ upgrade.latest }}
+          </span>
+          <el-button class="ml" size="small" :loading="checking" @click="doCheckUpgrade">检查更新</el-button>
+        </el-descriptions-item>
       </el-descriptions>
       <div class="actions">
         <el-button :loading="restarting" @click="doRestart">重启面板</el-button>

@@ -41,5 +41,8 @@ export const getNetwork = () => api.get("/panel/network");
 export const updateNetwork = (ipForward, egressIf) =>
   api.post("/panel/network", { ip_forward: ipForward, egress_if: egressIf || "" });
 
+// 检查是否有新版本（只读，不下载不执行）
+export const checkUpgrade = () => api.get("/panel/upgrade/check");
+
 // 重启面板服务（走受控的 systemctl 包装脚本）
 export const restartPanel = () => api.post("/panel/restart");
