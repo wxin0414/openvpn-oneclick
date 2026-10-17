@@ -44,6 +44,8 @@ HELPERS = {
     "ACTION=net": f"{LIB_DIR}/net-control",
     # 在线升级：异步（起后台进程跑 install.sh --update），只返回 STARTED
     "ACTION=self-update": f"{LIB_DIR}/self-update",
+    # 服务控制：start / stop / restart / status（面板带 NoNewPrivileges=1，sudo 一律失败）
+    "ACTION=service": f"{LIB_DIR}/service-control",
 }
 
 

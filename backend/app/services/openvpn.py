@@ -17,13 +17,25 @@
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
+from pathlib import Path
 from typing import Literal
 
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+# 服务控制走 socket 激活的 root 助手（见 templates/service-control.sh）。
+# 面板进程带 NoNewPrivileges=1，任何 sudo 都会被拒绝，所以必须优先走这条路；
+# sudo 只作为没有 socket 的环境（例如手工在终端里跑）的回退。
+SERVICE_HELPER_BIN = os.environ.get(
+    "SERVICE_HELPER_BIN", "/usr/local/lib/ovpnmanager/service-control"
+)
+SERVICE_CANDIDATE = os.environ.get(
+    "SERVICE_CANDIDATE", "/opt/ovpnmanager/backend/data/service.candidate"
+)
 
 ServiceAction = Literal["status", "start", "stop", "restart"]
 
@@ -113,12 +125,21 @@ def service_status_text() -> str:
 
     退出码 3（未运行）/ 4（未知）都属于正常结果，不再当成错误。
     """
-    try:
-        result = _run(_systemctl("status", "--no-pager", "--full", settings.openvpn_service_name))
-    except (OSError, subprocess.SubprocessError) as exc:
-        return f"status unavailable: {exc}"
-    text = (result.stdout or "").strip() or (result.stderr or "").strip()
-    return text or "ok"
+    # 不要用 `systemctl status`：降权包装脚本只接受受控 unit，会拒绝 --no-pager，
+    # 于是界面把 "refused argument: --no-pager" 当成状态文本显示（实测过）。
+    # 改用 show 的属性拼装，既稳定又不依赖本地化输出。
+    details = service_details()
+    load = details.get("LoadState", "").strip()
+    state = details.get("ActiveState", "").strip()
+    sub = details.get("SubState", "").strip()
+    if not state:
+        return "status unavailable"
+    text = f"{state}"
+    if sub:
+        text += f" ({sub})"
+    if load and load != "loaded":
+        text = f"{load} / {text}"
+    return text
 
 
 def service_action(action: Literal["start", "stop", "restart"]) -> str:
@@ -128,6 +149,10 @@ def service_action(action: Literal["start", "stop", "restart"]) -> str:
     RuntimeError：否则它会以未捕获异常的形式冒到接口层，变成没有可读信息的 500
     traceback，而调用方本来只捕获 RuntimeError。
     """
+    via_helper, helper_reason = control_unit(action, settings.openvpn_service_name)
+    if via_helper:
+        return helper_reason
+    # 回退：直连 systemctl（要求当前进程有权限，通常只在非 systemd 加固环境成立）
     try:
         result = _run(_systemctl(action, settings.openvpn_service_name))
     except (OSError, subprocess.SubprocessError) as exc:
@@ -135,6 +160,46 @@ def service_action(action: Literal["start", "stop", "restart"]) -> str:
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or result.stdout.strip() or "OpenVPN service command failed")
     return result.stdout.strip() or "ok"
+
+
+def control_unit(action: str, unit: str | None = None) -> tuple[bool, str]:
+    """通过 root 助手操作受控 unit。
+
+    返回 ``(是否已由助手处理, 说明/状态)``。助手不可用时返回 ``(False, 原因)``，
+    由调用方决定是否回退到 sudo 路径。
+    """
+    from app.services import helper_client
+
+    target = unit or settings.openvpn_service_name
+    try:
+        candidate = Path(SERVICE_CANDIDATE)
+        candidate.parent.mkdir(parents=True, exist_ok=True)
+        candidate.write_text(f"ACTION={action}\nUNIT={target}\n", encoding="utf-8")
+        os.chmod(candidate, 0o600)
+    except OSError as exc:
+        # 写不了候选文件（例如开发机上没有生产路径）：交给调用方回退到直连 systemctl，
+        # 而不是在这里硬抛——否则在没有 socket 助手的环境里连"查看状态"都做不了。
+        logger.warning("无法写服务控制候选文件（%s）：%s", SERVICE_CANDIDATE, exc)
+        return False, f"无法写候选文件：{exc}"
+
+    try:
+        _rc, stdout, stderr = helper_client.run_helper(
+            "service", SERVICE_HELPER_BIN, settings.systemctl_timeout + 30
+        )
+    except helper_client.HelperUnavailable as exc:
+        return False, str(exc)
+
+    parsed: dict[str, str] = {}
+    for line in (stdout or "").splitlines():
+        if "=" in line:
+            key, value = line.split("=", 1)
+            parsed[key.strip()] = value.strip()
+
+    if parsed.get("RESULT") != "ok":
+        reason = parsed.get("REASON") or (stderr or "").strip()[:300] or "服务操作失败"
+        raise RuntimeError(reason)
+    state = parsed.get("STATE") or "ok"
+    return True, f"{action} {target} -> {state}"
 
 
 def control(action: ServiceAction) -> str:

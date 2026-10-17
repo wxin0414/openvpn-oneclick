@@ -1373,6 +1373,8 @@ install -D -m 0755 "${TPL_DIR}/apply-dispatch.sh" /usr/local/lib/ovpnmanager/app
   install -D -m 0755 "${TPL_DIR}/net-control.sh" /usr/local/lib/ovpnmanager/net-control
   # 在线升级（异步起后台进程跑 install.sh --update）
   install -D -m 0755 "${TPL_DIR}/self-update.sh" /usr/local/lib/ovpnmanager/self-update
+  # 服务控制助手（面板带 NoNewPrivileges=1，sudo 一律失败，必须走 socket）
+  install -D -m 0755 "${TPL_DIR}/service-control.sh" /usr/local/lib/ovpnmanager/service-control
   # 升级后台工作进程（独立脚本 + 环境变量传参，不做字符串拼接）
   install -D -m 0755 "${TPL_DIR}/upgrade-worker.sh" /usr/local/lib/ovpnmanager/upgrade-worker
   # 把安装器自身留一份：在线升级用它，避免每次都要联网下载（出网不稳时会失败）

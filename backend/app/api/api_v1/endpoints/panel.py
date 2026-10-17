@@ -562,13 +562,10 @@ def _schedule_self_restart(delay_seconds: float = 3.0) -> None:
 
     def _restart() -> None:
         try:
-            subprocess.run(
-                [os.environ.get("SYSTEMCTL_BIN", "/usr/local/lib/ovpnmanager/systemctl-wrapper"), "restart"],
-                capture_output=True,
-                text=True,
-                timeout=60,
-                check=False,
-            )
+            # 走 socket 助手：面板带 NoNewPrivileges=1，直接调包装脚本会被 sudo 拒绝
+            from app.services import openvpn as openvpn_service
+
+            openvpn_service.control_unit("restart", "ovpnmanager")
         except Exception:  # noqa: BLE001 - 重启失败也不该留下异常线程
             logger.exception("恢复后自动重启面板失败")
 
@@ -766,17 +763,9 @@ def start_upgrade(
 @router.post("/restart")
 def restart_panel(db: Session = Depends(deps.get_db), user=Depends(ensure_superuser)):
     """重启面板服务（走已有的 systemctl 包装脚本，sudoers 已授权 restart）。"""
-    bin_path = os.environ.get("SYSTEMCTL_BIN", "/usr/local/lib/ovpnmanager/systemctl-wrapper")
-    try:
-        proc = subprocess.run([bin_path, "restart"], capture_output=True, text=True,
-                              timeout=60, check=False)
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise HTTPException(status_code=500, detail=f"重启面板失败：{exc}") from exc
-    ok = proc.returncode == 0
-    safe_audit(db, getattr(user, "username", "?"), "panel.restart", "ovpnmanager",
-               "ok" if ok else f"failed: {proc.stderr.strip()[:200]}")
-    if not ok:
-        raise HTTPException(status_code=500,
-                            detail={"message": "重启面板失败",
-                                    "stderr": proc.stderr.strip()[:300]})
-    return {"ok": True, "note": "面板已重启，请稍候刷新页面。"}
+    # 必须延迟重启：同步重启会把这个请求自己的连接切断，客户端只能拿到 502
+    # （实测），看起来像是"重启失败"，其实服务好好的。改成先返回、3 秒后再重启，
+    # 与恢复备份后的自重启走同一条路（内部走 socket 助手，不用 sudo）。
+    _schedule_self_restart(3.0)
+    safe_audit(db, getattr(user, "username", "?"), "panel.restart", "ovpnmanager", "scheduled")
+    return {"ok": True, "message": "面板将在约 3 秒后重启，请稍后刷新页面重新登录。"}
