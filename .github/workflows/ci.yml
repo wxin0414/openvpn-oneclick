@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# 说明
+# ----
+# 这个仓库有 500+ 条断言，但此前全靠人工在真机上跑。本工作流把它们搬进 CI，
+# 分成三组互不依赖的作业，任意一组失败都能单独重跑：
+#
+#   shell    —— 安装器 / 特权助手 / 面板配置渲染的纯 bash 断言
+#   static   —— 跨组件契约、托管块对等、前后端区间一致性等纯静态检查（只用标准库）
+#   backend  —— 面板后端的接口与逻辑断言（需要 requirements.txt）
+#
+# 另外所有作业都会先做一次语法门禁（bash -n / python -m py_compile），
+# 因为历史上最常见的破坏就是"改一行导致脚本语法错"。
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  syntax:
+    name: 语法门禁
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 安装 bash（确保是 bash 5）
+        run: bash --version | head -1
+      - name: install.sh 与模板语法
+        run: |
+          set -e
+          bash -n install.sh
+          echo "install.sh OK"
+          # 注意：模板目录里并非所有 *.sh 都是 bash —— apply-dispatch.sh 其实是
+          # Python（按 shebang 执行的 socket 分发器）。因此按首行 shebang 分派，
+          # 而不是按扩展名猜。历史上就因为这个踩过一次。
+          for f in templates/*.sh; do
+            if head -1 "$f" | grep -q python; then
+              python3 -m py_compile "$f" && echo "$f (python) OK"
+            else
+              bash -n "$f" && echo "$f (bash) OK"
+            fi
+          done
+      - name: Python 语法
+        run: |
+          set -e
+          # 用 xargs 而不是 $(...) 展开：文件多时命令行会超长（实测在本地就触发了
+          # 「文件名或扩展名太长」）。
+          git ls-files '*.py' | xargs -r python3 -m py_compile
+          echo "python OK"
+
+  shell:
+    name: 安装器与助手（bash 断言）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: test_functions.sh
+        run: bash tests/test_functions.sh
+      - name: test_apply_config.sh
+        run: bash tests/test_apply_config.sh
+      - name: test_panel_config.sh
+        run: bash tests/test_panel_config.sh
+
+  static:
+    name: 跨组件静态检查
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 应用与助手的指令契约
+        run: python3 tests/check_apply_contract.py
+      - name: 托管块能力对等
+        run: python3 tests/test_block_parity.py
+      - name: 前后端数值区间一致
+        run: python3 tests/check_ranges.py
+      - name: install.sh 的模板占位符覆盖
+        run: python3 tests/check_templates.py
+      - name: env 模板与面板配置契约
+        run: python3 tests/check_env_contract.py
+
+  backend:
+    name: 面板后端（接口与逻辑断言）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+      - name: 后端断言
+        working-directory: backend
+        run: python tests/test_fixes.py
