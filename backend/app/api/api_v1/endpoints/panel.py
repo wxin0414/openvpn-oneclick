@@ -51,6 +51,8 @@ APPLY_PANEL_CONFIG_BIN = os.environ.get(
 APPLY_TIMEOUT_SECONDS = int(os.environ.get("APPLY_PANEL_TIMEOUT_SECONDS", "120"))
 BACKUP_BIN = os.environ.get("BACKUP_BIN", "/usr/local/lib/ovpnmanager/backup-now")
 BACKUP_TIMEOUT_SECONDS = int(os.environ.get("BACKUP_TIMEOUT_SECONDS", "180"))
+# 索引由 backup-now 追加，0644、不含密钥内容，面板无需 root 即可读
+BACKUP_INDEX = os.environ.get("BACKUP_INDEX_FILE", "/etc/ovpn-oneclick/backup-index.jsonl")
 PANEL_DATA_DIR = Path(os.environ.get("PANEL_DATA_DIR", "/opt/ovpnmanager/backend/data"))
 CANDIDATE = PANEL_DATA_DIR / "panel.candidate"
 WEB_NAME = "ovpnmanager"
@@ -399,6 +401,31 @@ def update_session(
         "restart_required": True,
         "note": "已写入 .env，需要重启面板后生效；重启会短暂中断当前连接。",
     }
+
+
+@router.get("/backups")
+def list_backups(_=Depends(ensure_superuser)):
+    """列出最近的手动备份（读助手写的索引，不需要 root）。
+
+    只返回路径/大小/条目数/时间，不含任何密钥内容。
+    """
+    import json as _json
+
+    entries: list[dict] = []
+    try:
+        with open(BACKUP_INDEX, encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entries.append(_json.loads(line))
+                except ValueError:
+                    continue  # 坏行跳过，不让一条脏数据毁掉整个列表
+    except OSError:
+        return {"ok": True, "items": [], "note": "还没有通过面板做过备份"}
+    entries.reverse()
+    return {"ok": True, "items": entries[:50]}
 
 
 @router.post("/backup")

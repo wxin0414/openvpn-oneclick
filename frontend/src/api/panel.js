@@ -27,5 +27,11 @@ export const getSessionSettings = () => api.get("/panel/session");
 export const updateSessionSettings = (sessionMinutes) =>
   api.post("/panel/session", { session_minutes: sessionMinutes });
 
+// 一键备份：PKI + server.conf + .env + app.db -> /var/backups/ovpn-oneclick（只读操作）
+export const createBackup = () => api.post("/panel/backup");
+
+// 最近的手动备份列表（读助手写的索引，不含密钥内容）
+export const listBackups = () => api.get("/panel/backups");
+
 // 重启面板服务（走受控的 systemctl 包装脚本）
 export const restartPanel = () => api.post("/panel/restart");

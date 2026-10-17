@@ -3,7 +3,9 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 
 import {
+  createBackup,
   getPanelSettings,
+  listBackups,
   restartPanel,
   updateAdminCredentials,
   updatePanelSettings,
@@ -199,7 +201,43 @@ async function doRestart() {
   }
 }
 
-onMounted(load);
+// ---- 备份 ----
+const backups = ref([]);
+const backingUp = ref(false);
+
+async function loadBackups() {
+  try {
+    const { data } = await listBackups();
+    backups.value = data?.items || [];
+  } catch {
+    backups.value = [];
+  }
+}
+
+async function doBackup() {
+  backingUp.value = true;
+  try {
+    const { data } = await createBackup();
+    ElMessage.success(`已备份：${data.backup}（${data.files} 个文件）`);
+    await loadBackups();
+  } catch (err) {
+    ElMessage.error(err?.response?.data?.detail || "备份失败");
+  } finally {
+    backingUp.value = false;
+  }
+}
+
+function fmtSize(bytes) {
+  const n = Number(bytes) || 0;
+  if (n >= 1048576) return `${(n / 1048576).toFixed(1)} MB`;
+  if (n >= 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${n} B`;
+}
+
+onMounted(() => {
+  load();
+  loadBackups();
+});
 </script>
 
 <template>
@@ -311,6 +349,27 @@ onMounted(load);
       <div class="actions">
         <el-button type="primary" @click="saveAdmin">更新账号</el-button>
       </div>
+    </el-card>
+
+    <el-card class="section-card" shadow="never">
+      <template #header><b>备份</b></template>
+      <div class="actions">
+        <el-button type="primary" :loading="backingUp" @click="doBackup">立即备份</el-button>
+        <el-button :loading="loading" @click="loadBackups">刷新列表</el-button>
+      </div>
+      <div class="hint">
+        备份 CA 私钥、server.conf、.env 与 app.db 四项；文件在
+        /var/backups/ovpn-oneclick 下，权限 0600（含密钥，请勿外传）。
+      </div>
+      <el-table v-if="backups.length" :data="backups" size="small" style="margin-top: 12px">
+        <el-table-column prop="time" label="时间" min-width="170" />
+        <el-table-column label="大小" width="100">
+          <template #default="{ row }">{{ fmtSize(row.size) }}</template>
+        </el-table-column>
+        <el-table-column prop="files" label="条目" width="80" />
+        <el-table-column prop="backup" label="路径" min-width="240" show-overflow-tooltip />
+      </el-table>
+      <div v-else class="hint" style="margin-top: 8px">还没有通过面板做过备份。</div>
     </el-card>
 
     <el-card class="section-card" shadow="never">

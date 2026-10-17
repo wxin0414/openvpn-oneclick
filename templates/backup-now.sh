@@ -86,3 +86,16 @@ ls -1t "${BACKUP_DIR}"/manual-*.tar.gz 2>/dev/null | tail -n +$((KEEP + 1)) | wh
 done
 
 printf 'RESULT=ok\nBACKUP=%s\nSIZE=%s\nFILES=%s\nREASON=\n' "$out" "$size" "$files"
+# 追加一行索引到 /etc/ovpn-oneclick/backup-index.jsonl（0644）。
+# 为什么不在备份目录里放索引：/var/backups/ovpn-oneclick 是 0700 root，面板以非 root
+# 运行、连目录都进不去；而 /etc/ovpn-oneclick 是 0755，panel.state 也在那儿。
+# 索引里只有路径/大小/时间，不含任何密钥内容，所以可以给面板读。
+INDEX_FILE="${BACKUP_INDEX_FILE:-/etc/ovpn-oneclick/backup-index.jsonl}"
+printf '{"time":"%s","backup":"%s","size":%s,"files":%s}\n' \
+  "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$out" "$size" "$files" >> "$INDEX_FILE" 2>/dev/null || true
+chmod 0644 "$INDEX_FILE" 2>/dev/null || true
+# 索引只保留最近 200 行，避免无限增长
+if [ -f "$INDEX_FILE" ] && [ "$(wc -l < "$INDEX_FILE")" -gt 200 ]; then
+  tail -200 "$INDEX_FILE" > "${INDEX_FILE}.tmp" && mv "${INDEX_FILE}.tmp" "$INDEX_FILE"
+  chmod 0644 "$INDEX_FILE" 2>/dev/null || true
+fi
