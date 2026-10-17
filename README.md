@@ -237,7 +237,7 @@ sudo nginx -t && sudo systemctl reload nginx
 
 **安全模型：面板从不直接写系统文件。** 面板以非 root 运行，`server.conf`、NAT 脚本、nginx 站点配置都归 root。流程是：面板把"想改成的样子"渲染成一份完整候选配置写进自己的数据目录（`/opt/ovpnmanager/backend/data/server.conf.candidate`，`0600`）→ 通过 **systemd socket 激活**把候选交给 root 助手（`/run/ovpn-oneclick/apply.sock` → `apply@.service`，以 root 运行；**不带任何参数**，路径全部来自 root 所有的 `/etc/ovpn-oneclick/apply.conf`）。注意：面板进程带 `NoNewPrivileges=1`，**任何 `sudo` 都会被内核拒绝**，所以所有提权动作（配置写入、服务启停、备份、恢复、升级）都走这条路，`sudo` 只是没有 socket 时的回退→ 助手以 root 校验、备份、原子替换、按需重建 NAT / nginx、重启并等待就绪，失败整体回滚 → 面板解析助手输出的 `RESULT=` / `BACKUP=` / `RESTARTED=` / `ROLLED_BACK=` / `NETWORK_CHANGED=` / `REASON=` 回报页面。
 
-助手的校验有四条，缺一不可：候选文件必须存在且是普通文件、非空、不超过 128 KB、不含 NUL、属主是面板用户且不是组/其他用户可写；托管块内只能出现白名单指令（`port proto server topology data-ciphers auth user group log-append status mssfix sndbuf rcvbuf keepalive client-to-client max-clients duplicate-cn block-ipv6 push explicit-exit-notify`），`push` 的载荷还要逐个匹配允许的形态；托管块之外不得引入当前配置里没有的指令；候选也不能让既有指令凭空消失——只允许把它们注释成 `# [ovpn-oneclick retired] <原行>`。
+助手的校验有四条，缺一不可：候选文件必须存在且是普通文件、非空、不超过 128 KB、不含 NUL、属主是面板用户且不是组/其他用户可写；托管块内只能出现白名单指令（`port proto server topology data-ciphers auth user group log-append status reneg-sec tls-version-min verb mute inactive mssfix sndbuf rcvbuf keepalive client-to-client max-clients duplicate-cn block-ipv6 push explicit-exit-notify`，共 24 条；`push` 载荷允许 7 种前缀：`dhcp-option redirect-gateway route sndbuf rcvbuf ifconfig-ipv6 block-outside-dns`），`push` 的载荷还要逐个匹配允许的形态；托管块之外不得引入当前配置里没有的指令；候选也不能让既有指令凭空消失——只允许把它们注释成 `# [ovpn-oneclick retired] <原行>`。
 
 因此 `server.conf` 里那段托管块以外的内容不受面板影响，反过来说：**手工编辑托管块里的行没有意义**，每次保存都会按表单内容整段重新生成。若 `server.conf` 不是本安装器写的（例如 `--adopt` 采纳来的），它没有托管块；第一次保存时面板会插入托管块、把冲突的旧指令注释退役并先备份，页面会提前给出提醒。
 
@@ -458,6 +458,20 @@ sudo systemctl restart ovpnmanager
 - **面板的规模表现。** 在线状态由后台每 30 秒同步一次，列表与审计分页查询按常规量级设计，没有做过数百客户端以上的压力测试。
 
 还有一条行为约定需要留意：分流模式且未显式指定 `--dns1` 时不推送任何 DNS（推公共 DNS 会把内网域名也解析到公网），内网需要域名解析时请显式指定内网 DNS。
+
+## 明确未实现的功能
+
+以下两项常被问起，本项目**没有实现**，需要时请手工处理：
+
+- **重建 CA**：`easyrsa` 重建 CA 会让所有既有客户端证书失效（需要逐个重签并重新分发）。
+  面板不提供该操作，也没有"一键换 CA"的入口。真要做，请先在集群外备份 PKI、
+  按 EasyRSA 官方流程操作，然后重新导出全部客户端配置。
+- **轮换 tls-crypt 密钥**：换 `ta.key` 会让所有既有 `.ovpn` 立即失效（它们内联了旧密钥）。
+  面板不提供该操作。流程是手工生成新密钥、更新 `server.conf`、重新导出全部客户端配置。
+
+这两件事的共同点是"影响面覆盖全部客户端且不可逆"，做成一个按钮的收益远小于误操作的风险。
+面板能做的部分是**降低它们的必要性**：证书到期提醒（提前换签即可，不必重建 CA）、
+配置历史与一键回滚（改坏了能退回去）。
 
 ## 许可与致谢
 
