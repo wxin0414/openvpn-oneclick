@@ -267,6 +267,21 @@ sudo nginx -t && sudo systemctl reload nginx
 
 吊销不会重启 OpenVPN：脚本只重新生成 CRL（OpenVPN 检测到文件变化后会重读它），再通过 management 接口 `kill` 掉这个客户端的会话。若 management 端口正被面板占用，它会如实告诉你未能确认断开，此时可在面板里对该客户端执行「强制下线」。
 
+## 客户端下载（按平台）
+
+「客户端管理」页顶部有 **客户端下载** 按钮（分享弹窗里也有入口）：列出 Windows / Android /
+iOS / macOS / Linux 各自该装哪个客户端，链接只指向**官方来源**。
+
+- Windows / macOS / iOS：OpenVPN Connect（[openvpn.net/client](https://openvpn.net/client/)）
+- Android：Google Play 的 `net.openvpn.openvpn`
+- macOS 另可选 Tunnelblick（社区版）
+- Linux：`apt install openvpn`，图形界面见[社区下载页](https://openvpn.net/community-downloads/)
+
+两点刻意为之：
+
+1. **iOS 不硬编码 App Store 的数字 ID**——没把握的链接不如给官方分发页，由官网按平台跳转。
+2. 面板明确写着「只装官方客户端」：第三方「一键连 VPN」类应用不要用来导入本服务的配置。
+
 ## 分享给同事（一次性链接与二维码）
 
 「客户端管理」里每个客户端多了一个 **分享** 按钮：生成一条**一次性**下载链接，并附带二维码。

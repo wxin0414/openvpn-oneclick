@@ -7,6 +7,7 @@
       </div>
       <div class="page-header__actions">
         <el-button type="primary" @click="openCreate">新增客户端</el-button>
+      <el-button @click="downloadsVisible = true">客户端下载</el-button>
       </div>
     </div>
 
@@ -190,7 +191,16 @@
           手机扫码即可下载。链接只能使用一次，{{ shareInfo.ttl_minutes }} 分钟后过期
           （{{ shareInfo.expires_at }}）；用过后需要重新生成。
         </div>
+        <div class="field-tip" style="margin-top: 6px">
+          还没装客户端？
+          <el-link type="primary" :underline="false" @click="downloadsVisible = true">
+            按平台下载 OpenVPN 客户端
+          </el-link>
+        </div>
       </template>
+    </el-dialog>
+      <el-dialog v-model="downloadsVisible" title="下载 OpenVPN 客户端" width="min(94vw, 720px)">
+      <ClientDownloads />
     </el-dialog>
   </div>
 </template>
@@ -215,6 +225,7 @@ import { waitForJob } from "../api/jobs";
 import { debounce } from "lodash-es";
 import { useBreakpoint } from "../composables/useBreakpoint";
 
+import ClientDownloads from "../components/ClientDownloads.vue";
 const { isMobile, isDesktop } = useBreakpoint();
 
 const clients = ref([]);
@@ -346,6 +357,7 @@ const openEdit = (row) => {
 };
 
 // ---- 一次性分享链接（二维码编码的是下载链接，不是 8 KB 的配置本身）----
+const downloadsVisible = ref(false);
 const shareVisible = ref(false);
 const shareInfo = ref(null);
 const shareLoading = ref(false);
