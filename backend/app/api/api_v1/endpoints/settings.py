@@ -19,10 +19,14 @@
 
 from __future__ import annotations
 
+import difflib
 import logging
+import re
 import subprocess
+from datetime import datetime, timezone
+from pathlib import Path
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app import crud
@@ -435,3 +439,140 @@ def reexport_all_clients(
 
 
 __all__ = ["router"]
+
+# --------------------------------------------------------------------------- #
+# 配置历史（.bak）与回滚
+# --------------------------------------------------------------------------- #
+# 每次落地新配置，root 助手都会把旧文件留成 ``server.conf.bak.YYYYMMDD-HHMMSS``。
+# 这些备份一直存在，但此前只能 SSH 进去 cat —— 属于"数据在，界面没有"。
+#
+# 回滚**复用**已有的 ``ACTION=server-conf`` 助手：把备份内容原样写成候选文件再提交。
+# 这样备份/原子替换/重启/就绪检查/失败回滚全都走同一条走过真机验证的路径，不需要
+# 再写一个特权脚本。代价是：备份本身必须先通过面板的候选校验（例如早期版本里
+# 已被移除的指令会被拒绝），这是刻意的——宁可拒绝，也不要把一份"当年能跑、现在
+# 可能起不来"的配置写回去。
+
+_BACKUP_RE = re.compile(r"^server\.conf\.bak\.[0-9]{8}-[0-9]{6}$")
+_MAX_CONF_BYTES = 1024 * 1024
+_MAX_DIFF_LINES = 600
+
+
+def _conf_path() -> Path:
+    return Path(settings.server_conf_path)
+
+
+def _backup_files() -> list[Path]:
+    directory = _conf_path().parent
+    try:
+        entries = list(directory.glob("server.conf.bak.*"))
+    except OSError:
+        return []
+    out = [p for p in entries if p.is_file() and not p.is_symlink()]
+    out.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return out
+
+
+def _read_backup(name: str) -> str:
+    if not _BACKUP_RE.match(name or ""):
+        raise HTTPException(status_code=400, detail="备份文件名不合法")
+    path = _conf_path().parent / name
+    if not path.is_file() or path.is_symlink():
+        raise HTTPException(status_code=404, detail="备份文件不存在")
+    try:
+        size = path.stat().st_size
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"读取备份失败：{exc}") from exc
+    if size > _MAX_CONF_BYTES:
+        raise HTTPException(status_code=400, detail="备份文件异常过大，拒绝处理")
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"读取备份失败：{exc}") from exc
+
+
+@router.get("/history", summary="列出 server.conf 的历史备份")
+def list_history() -> dict:
+    items = []
+    for path in _backup_files():
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        items.append(
+            {
+                "name": path.name,
+                "size": stat.st_size,
+                "mtime": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+            }
+        )
+    return {"items": items, "count": len(items), "dir": str(_conf_path().parent)}
+
+
+@router.get("/history/{name}", summary="查看某个备份与当前配置的差异")
+def show_history(name: str) -> dict:
+    backup = _read_backup(name)
+
+    current = ""
+    try:
+        current = _conf_path().read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        current = ""
+
+    diff_lines = list(
+        difflib.unified_diff(
+            current.splitlines(),
+            backup.splitlines(),
+            fromfile="当前 server.conf",
+            tofile=name,
+            lineterm="",
+        )
+    )
+    truncated = len(diff_lines) > _MAX_DIFF_LINES
+    return {
+        "name": name,
+        "content": backup,
+        "diff": "\n".join(diff_lines[:_MAX_DIFF_LINES]),
+        "diff_truncated": truncated,
+        "identical": backup.strip() == current.strip(),
+        "size": len(backup.encode("utf-8")),
+    }
+
+
+@router.post("/history/{name}/restore", summary="用某个备份回滚 server.conf")
+def restore_history(
+    name: str,
+    confirm: str = Query("", description="必须为 RESTORE"),
+    db: Session = Depends(deps.get_db),
+    user=Depends(get_current_user),
+) -> dict:
+    """把备份内容作为候选配置提交，由 root 助手做备份/替换/重启/回滚。"""
+    if confirm != "RESTORE":
+        raise HTTPException(status_code=400, detail="危险操作：请传入 confirm=RESTORE")
+
+    text = _read_backup(name)
+
+    try:
+        validate_candidate(text)
+    except Exception as exc:  # noqa: BLE001 - 校验失败要原样告诉用户原因
+        raise HTTPException(status_code=400, detail=f"该备份无法回滚：{exc}") from exc
+
+    write_candidate(candidate_path(), text)
+    parsed = _run_helper()
+
+    ok = parsed.get("RESULT") == "ok"
+    reason = parsed.get("REASON", "")
+    safe_audit(
+        db,
+        getattr(user, "username", "?"),
+        "settings.restore",
+        name,
+        "success" if ok else f"failed: {reason}",
+    )
+    if not ok:
+        raise HTTPException(status_code=409, detail=reason or "回滚失败（助手未给出原因）")
+    return {
+        "ok": True,
+        "restored": name,
+        "backup": parsed.get("BACKUP", ""),
+        "message": "已用该备份回滚并重启，服务保持运行",
+    }

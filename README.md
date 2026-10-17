@@ -300,6 +300,21 @@ Dashboard 新增「证书到期」卡片：列出未来 30 天内会到期的客
 `valid` 是"状态有效**且**未过期"，`expired` 是"未吊销**且**已过期"，两者不重叠。
 之前 `valid` 只判状态、`expired` 不排除已吊销，导致四个分项加起来会超过 `total`。
 
+## 配置历史与回滚
+
+「服务端设置」页面底部新增 **配置历史** 卡片：列出每次保存前留下的
+`server.conf.bak.YYYYMMDD-HHMMSS`，可以查看与当前配置的差异，或直接用某份备份回滚。
+
+- 接口：`GET /api/settings/history`、`GET /api/settings/history/{name}`（含 unified diff）、
+  `POST /api/settings/history/{name}/restore?confirm=RESTORE`。
+- **回滚复用同一条落地通道**：把备份内容原样写成候选文件，再交给 `ACTION=server-conf`
+  助手做备份/原子替换/重启/就绪检查/失败自动还原。不另写特权脚本，风险面不增加。
+- 回滚前会先备份当前配置，所以"回滚错了"也能再回滚回来。
+- 备份必须先通过候选校验才会被接受。早期版本里已被移除的指令会被拒绝——宁可拒绝，
+  也不要把一份"当年能跑、现在可能起不来"的配置写回去。
+- 文件名严格匹配 `server.conf.bak.<8位日期>-<6位时间>`，且必须是 `/etc/openvpn` 下的普通文件
+  （拒绝符号链接与路径穿越）。
+
 ## 备份与恢复
 
 **一键备份。** 面板「面板设置 → 备份」，或 `POST /api/panel/backup`。备份四样真正无法重建的东西：PKI（`/etc/openvpn/easy-rsa`）、`server.conf`、`backend/.env`（`SECRET_KEY` 与口令）、`backend/data/app.db`。产物在 `/var/backups/ovpn-oneclick/manual-<时间戳>.tar.gz`，权限 `0600`（内含 CA 私钥与 `SECRET_KEY`，**不要外传**），只保留最近 10 份。备份列表的索引在 `/etc/ovpn-oneclick/backup-index.jsonl`（`0644`，只含路径/大小/时间，不含密钥内容）。

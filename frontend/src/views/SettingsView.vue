@@ -364,7 +364,42 @@
         保存并应用
       </el-button>
     </div>
-  </div>
+        <el-card class="panel-card" shadow="never">
+        <template #header>
+          <div class="card-head">
+            <span>配置历史（server.conf 备份）</span>
+            <el-button size="small" @click="loadHistory" :loading="historyLoading">刷新</el-button>
+          </div>
+        </template>
+        <div class="field-tip" style="margin-bottom: 8px">
+          每次保存设置，root 助手都会把旧配置留成一份备份。可以查看与当前的差异，或直接用某份备份回滚
+          （回滚同样会先备份当前配置，并在服务起不来时自动还原）。
+        </div>
+        <div v-if="!historyItems.length" class="field-tip">暂无备份。</div>
+        <el-table v-else :data="historyItems" size="small" max-height="320">
+          <el-table-column prop="name" label="备份文件" min-width="240" />
+          <el-table-column prop="mtime" label="时间（UTC）" width="200" />
+          <el-table-column prop="size" label="大小" width="90" />
+          <el-table-column label="操作" width="170">
+            <template #default="{ row }">
+              <el-button size="small" @click="showDiff(row)">差异</el-button>
+              <el-button size="small" type="warning" @click="restore(row)">回滚</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </el-card>
+
+      <el-dialog v-model="diffVisible" :title="'差异：' + diffName" width="min(94vw, 820px)">
+        <div v-if="diffLoading" v-loading="true" style="height: 160px"></div>
+        <template v-else>
+          <div class="field-tip" style="margin-bottom: 6px">
+            左边是当前配置（-），右边是该备份（+）。{{ diffIdentical ? "两者内容相同。" : "" }}
+          </div>
+          <pre class="diff-view">{{ diffText || "（无差异）" }}</pre>
+          <div v-if="diffTruncated" class="field-tip">差异过长，已截断显示。</div>
+        </template>
+      </el-dialog>
+</div>
 </template>
 
 <script setup>
@@ -372,6 +407,7 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { getServerSettings, reexportAllClients, updateServerSettings } from "../api/settings";
 import { useBreakpoint } from "../composables/useBreakpoint";
+import api from "../api/http";
 
 const { isMobile } = useBreakpoint();
 
@@ -873,6 +909,73 @@ const handleReexportAll = async () => {
 };
 
 onMounted(() => reload(false));
+
+// ---- 配置历史与回滚 ----
+const historyItems = ref([]);
+const historyLoading = ref(false);
+const diffVisible = ref(false);
+const diffLoading = ref(false);
+const diffName = ref("");
+const diffText = ref("");
+const diffTruncated = ref(false);
+const diffIdentical = ref(false);
+
+async function loadHistory() {
+  historyLoading.value = true;
+  try {
+    const { data } = await api.get("/settings/history");
+    historyItems.value = data.items || [];
+  } catch (err) {
+    ElMessage.error(err?.response?.data?.detail || "读取配置历史失败");
+  } finally {
+    historyLoading.value = false;
+  }
+}
+
+async function showDiff(row) {
+  diffVisible.value = true;
+  diffLoading.value = true;
+  diffName.value = row.name;
+  diffText.value = "";
+  try {
+    const { data } = await api.get(`/settings/history/${row.name}`);
+    diffText.value = data.diff || "";
+    diffTruncated.value = !!data.diff_truncated;
+    diffIdentical.value = !!data.identical;
+  } catch (err) {
+    diffText.value = err?.response?.data?.detail || "读取差异失败";
+  } finally {
+    diffLoading.value = false;
+  }
+}
+
+async function restore(row) {
+  const { value } = await ElMessageBox.prompt(
+    `将用「${row.name}」覆盖当前 server.conf，并重启 OpenVPN。如果新配置起不来会自动还原。请输入 RESTORE 确认`,
+    "回滚配置",
+    {
+      inputPlaceholder: "RESTORE",
+      confirmButtonText: "确认回滚",
+      cancelButtonText: "取消",
+      closeOnClickModal: false,
+    },
+  ).catch(() => ({ value: null }));
+  if (value === null) return;
+  if ((value || "").trim() !== "RESTORE") {
+    ElMessage.warning("确认文本不匹配，已取消");
+    return;
+  }
+  try {
+    const { data } = await api.post(`/settings/history/${row.name}/restore`, null, {
+      params: { confirm: "RESTORE" },
+    });
+    ElMessage.success(data.message || "已回滚");
+    await loadHistory();
+    await load();
+  } catch (err) {
+    ElMessage.error(err?.response?.data?.detail || "回滚失败");
+  }
+}
 </script>
 
 <style scoped>
@@ -1005,5 +1108,15 @@ onMounted(() => reload(false));
   .inline-number {
     margin-left: 0;
   }
+}
+.diff-view {
+  max-height: 420px;
+  overflow: auto;
+  background: var(--el-fill-color-light);
+  padding: 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre;
 }
 </style>
