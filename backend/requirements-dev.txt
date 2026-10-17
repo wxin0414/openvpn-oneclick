@@ -1,0 +1,6 @@
+# 测试/开发专用依赖（运行时不需要）
+# 背景：backend/tests/test_fixes.py 用 fastapi.testclient，而 starlette 的
+# TestClient 依赖 httpx —— 它不在运行时的 requirements.txt 里，导致 CI 里
+# 报 "starlette.testclient module requires the httpx2 package"。
+-r requirements.txt
+httpx>=0.27,<1.0
