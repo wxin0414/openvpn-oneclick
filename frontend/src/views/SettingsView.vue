@@ -217,6 +217,15 @@
             <el-input v-model="form.group" placeholder="nogroup" />
             <div class="field-tip">与 user 配套；Debian 上是 nogroup，RHEL 系通常是 nobody。</div>
           </el-form-item>
+          <el-form-item label="日志文件 (log-append)">
+            <el-input v-model="form.log_append" placeholder="/var/log/openvpn/openvpn.log" />
+            <div class="field-tip">必须位于 /var/log/openvpn/ 下：OpenVPN 以降权用户运行，只有该目录被授权写入。</div>
+          </el-form-item>
+
+          <el-form-item label="状态文件 (status)">
+            <el-input v-model="form.status_file" placeholder="/var/log/openvpn/openvpn-status.log" />
+            <div class="field-tip">面板的在线客户端列表依赖它，同样必须在 /var/log/openvpn/ 下。</div>
+          </el-form-item>
           <el-form-item label="发送缓冲区 (sndbuf)" required>
             <el-input-number v-model="form.sndbuf" :min="0" :max="BUFFER_MAX" :step="1024" controls-position="right" />
             <div v-if="errors.sndbuf" class="field-tip err">{{ errors.sndbuf }}</div>
@@ -353,6 +362,8 @@ const SETTINGS_KEYS = [
   "auth",
   "user",
   "group",
+  "log_append",
+  "status_file",
 ];
 
 // 下拉选项。接口若返回列表外的值，会以“当前值”占位追加，避免静默改写配置。
@@ -412,6 +423,8 @@ const form = reactive({
   auth: "",
   user: "",
   group: "",
+  log_append: "",
+  status_file: "",
 });
 
 // 只读指令单独存一份，避免模板里对可能为 null 的对象取属性。
