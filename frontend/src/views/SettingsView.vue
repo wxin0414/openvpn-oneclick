@@ -311,8 +311,6 @@
         <el-descriptions-item label="crl-verify（吊销列表）">{{ display(readonlyInfo.crl_verify) }}</el-descriptions-item>
         <el-descriptions-item label="client-config-dir（CCD）">{{ display(readonlyInfo.client_config_dir) }}</el-descriptions-item>
         <el-descriptions-item label="TLS 模式">{{ display(readonlyInfo.tls_mode) }}</el-descriptions-item>
-        <el-descriptions-item label="数据加密套件">{{ display(readonlyInfo.data_ciphers) }}</el-descriptions-item>
-        <el-descriptions-item label="auth（摘要算法）">{{ display(readonlyInfo.auth) }}</el-descriptions-item>
         <el-descriptions-item label="cipher（旧版对称加密）">{{ display(readonlyInfo.cipher) }}</el-descriptions-item>
       </el-descriptions>
     </section>

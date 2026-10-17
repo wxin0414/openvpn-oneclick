@@ -508,6 +508,11 @@ def editable_settings(conf: ServerConf, pushes: dict) -> dict:
         "group": conf.group,
         "log_append": conf.log_append,
         "status_file": conf.status_file,
+        # data-ciphers / auth 是可编辑项（在 EDITABLE_KEYS 与托管块里），必须出现在
+        # 这里。曾经只加进了 readonly_settings，导致"能写、读不回"：面板显示空值，
+        # 每次保存都被判成"已修改"。实测在 110.42.102.239 上发现。
+        "data_ciphers": conf.data_ciphers,
+        "auth": conf.auth,
         "topology": conf.topology if conf.topology in _VALID_TOPOLOGIES else DEFAULT_EDITABLE_TOPOLOGY,
     }
 
@@ -520,8 +525,6 @@ def readonly_settings(conf: ServerConf) -> dict:
         "crl_verify": conf.crl_verify,
         "client_config_dir": conf.client_config_dir,
         "tls_mode": conf.tls_mode,
-        "data_ciphers": conf.data_ciphers,
-        "auth": conf.auth,
         "cipher": conf.cipher,
     }
 
