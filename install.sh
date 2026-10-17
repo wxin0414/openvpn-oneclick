@@ -366,18 +366,44 @@ resolve_server_addr() {
 
 # 服务名与配置路径：Debian 系新包提供 openvpn-server@，RHEL 系用 openvpn@
 resolve_openvpn_layout() {
-  if systemctl list-unit-files 2>/dev/null | grep -q '^openvpn-server@'; then
-    OVPN_SERVICE="openvpn-server@${SERVER_CN}"
-    SERVER_CONF="${SERVER_DIR}/${SERVER_CN}.conf"
-    EASYRSA_DIR="${SERVER_DIR}/easy-rsa"
-    CCD_DIR="${SERVER_DIR}/ccd"
-    CLIENT_EXPORT_DIR="${SERVER_DIR}/client"
+  # 布局以**已有配置文件在哪**为准，而不是"哪个 unit 存在"。
+  # Debian 12 的 openvpn 包同时提供 openvpn@.service 与 openvpn-server@.service；
+  # 若只看 unit 是否存在，重跑安装时会选到与既有配置不同的那套布局，进而：
+  #   1) 在另一个目录写出竞争用的 server.conf；
+  #   2) 服务名与配置路径配对不上（openvpn-server@server 读的是
+  #      /etc/openvpn/server/server.conf），启动失败；
+  #   3) 更糟的是两套 unit 都被 enable，开机互相抢同一个端口。
+  # 实测踩过：一台本来正常的机器，重跑安装后 VPN 起不来 + 重启循环。
+  local classic_conf="${OVPN_DIR}/${SERVER_CN}.conf"
+  local server_conf="${SERVER_DIR}/${SERVER_CN}.conf"
+  local use_classic
+  if [ -f "$classic_conf" ] && [ ! -f "$server_conf" ]; then
+    use_classic=1
+  elif [ -f "$server_conf" ] && [ ! -f "$classic_conf" ]; then
+    use_classic=0
+  elif [ -f "$classic_conf" ]; then
+    # 两套同时存在：沿用非 server 目录那一套（本脚本历史的默认），并明确告警，
+    # 不擅自删除任何一侧的配置。
+    use_classic=1
+    warn "检测到两套 OpenVPN 配置并存：${classic_conf} 与 ${server_conf}"
+    warn "已沿用前者；请手动清理另一套，否则两个 unit 会抢同一个端口"
+  elif systemctl list-unit-files 2>/dev/null | grep -q '^openvpn-server@'; then
+    use_classic=0
   else
+    use_classic=1
+  fi
+  if [ "$use_classic" -eq 1 ]; then
     OVPN_SERVICE="openvpn@${SERVER_CN}"
-    SERVER_CONF="${OVPN_DIR}/${SERVER_CN}.conf"
+    SERVER_CONF="$classic_conf"
     EASYRSA_DIR="${OVPN_DIR}/easy-rsa"
     CCD_DIR="${OVPN_DIR}/ccd"
     CLIENT_EXPORT_DIR="${OVPN_DIR}/client"
+  else
+    OVPN_SERVICE="openvpn-server@${SERVER_CN}"
+    SERVER_CONF="$server_conf"
+    EASYRSA_DIR="${SERVER_DIR}/easy-rsa"
+    CCD_DIR="${SERVER_DIR}/ccd"
+    CLIENT_EXPORT_DIR="${SERVER_DIR}/client"
   fi
   CRL_PATH="${SERVER_DIR}/crl.pem"
   TA_KEY="${SERVER_DIR}/ta.key"
@@ -1639,12 +1665,15 @@ adopt_layout() {
     if [ "$base" != "$SERVER_CN" ]; then
       info "既有配置名为 ${base}.conf，服务实例改用 ${base}"
       SERVER_CN="$base"
-      if systemctl list-unit-files 2>/dev/null | grep -q '^openvpn-server@'; then
-        OVPN_SERVICE="openvpn-server@${SERVER_CN}"
-      else
-        OVPN_SERVICE="openvpn@${SERVER_CN}"
-      fi
     fi
+    # 服务名必须由**配置路径**决定（而不是"哪个 unit 存在"）。
+    # /etc/openvpn/server/<cn>.conf -> openvpn-server@<cn>
+    # /etc/openvpn/<cn>.conf       -> openvpn@<cn>
+    # 只看 unit 会把既有配置配给读另一个路径的服务，导致启动失败。
+    case "$SERVER_CONF" in
+      "${SERVER_DIR}"/*) OVPN_SERVICE="openvpn-server@${SERVER_CN}" ;;
+      *)                 OVPN_SERVICE="openvpn@${SERVER_CN}" ;;
+    esac
   fi
   if [ -n "$EXISTING_PKI_DIR" ]; then
     EASYRSA_DIR="$EXISTING_PKI_DIR"

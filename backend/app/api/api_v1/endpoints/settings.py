@@ -29,7 +29,7 @@ from app import crud
 from app.api import deps
 from app.api.security import get_current_user
 from app.core.config import get_settings
-from app.services import client_tasks, server_conf
+from app.services import client_tasks, helper_client, server_conf
 from app.services import certs as certs_service
 from app.services.audit import safe_audit
 from app.services.server_conf_writer import (
@@ -171,48 +171,36 @@ def _parse_helper_output(stdout: str, stderr: str = "") -> dict[str, str]:
 
 
 def _run_helper() -> dict[str, str]:
-    """以 sudo 执行 root 助手（不带任何参数），返回解析后的结果。
+    """执行 root 助手（不带任何参数），返回解析后的结果。
 
-    助手不存在 / sudo 未授权 / 超时都会转成 500 + 中文说明；
-    调用方不需要再区分这些失败形态。
+    通道由 ``app.services.helper_client`` 决定：**socket 激活优先、sudo 兜底**。
+    只用 sudo 是不够的——受 NoNewPrivileges 限制的机器上，面板进程内的任何 sudo
+    都会失败（``sudo: The "no new privileges" flag is set``），而那正是本功能
+    过去在这些机器上一直不可用的原因。socket 通道由 systemd 以 root 拉起助手，
+    不受该限制影响。
+
+    助手不存在 / 通道不可用 / 超时都会转成 500 + 中文说明；调用方不需要区分。
     """
-    cmd = ["sudo", "-n", APPLY_CONFIG_BIN]
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=APPLY_TIMEOUT_SECONDS,
-            check=False,
+        _rc, stdout, stderr = helper_client.run_helper(
+            "server-conf", APPLY_CONFIG_BIN, APPLY_TIMEOUT_SECONDS
         )
-    except FileNotFoundError as exc:
-        # sudo 本身不存在（开发机/Windows）或助手路径不存在
+    except helper_client.HelperUnavailable as exc:
+        message = str(exc)
+        if "无法确认" in message:
+            # 超时：助手可能仍在后台把配置落地，不能谎称"没生效"
+            raise HTTPException(status_code=500, detail=message) from exc
         raise HTTPException(
             status_code=500,
-            detail=_MISSING_HELPER_MESSAGE.format(binary=APPLY_CONFIG_BIN, reason=f"命令不存在（{exc.filename}）"),
-        ) from exc
-    except subprocess.TimeoutExpired as exc:
-        # 注意：超时后面板无法知道助手是否已经把配置落地（它可能仍在后台完成），
-        # 因此必须把候选文件留在原地并如实告知，不要把状态说成"没生效"。
-        raise HTTPException(
-            status_code=500,
-            detail=(
-                f"特权助手 {APPLY_CONFIG_BIN} 在 {APPLY_TIMEOUT_SECONDS} 秒内没有返回，"
-                "无法确认配置是否已经落地。请查看助手日志与 systemctl status 后再重试。"
-            ),
-        ) from exc
-    except OSError as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=_MISSING_HELPER_MESSAGE.format(binary=APPLY_CONFIG_BIN, reason=str(exc)),
+            detail=_MISSING_HELPER_MESSAGE.format(binary=APPLY_CONFIG_BIN, reason=message),
         ) from exc
 
-    parsed = _parse_helper_output(result.stdout, result.stderr)
-    stderr = (result.stderr or "").strip()
+    parsed = _parse_helper_output(stdout, stderr)
+    stderr = (stderr or "").strip()
     if not parsed.get("RESULT"):
-        # 三种情况要分开报：sudo 拒绝（未配 NOPASSWD / 需要密码）、
+        # 三种情况要分开报：通道拒绝（sudo 未授信 / socket 不存在）、
         # 助手被 install.sh 装到了别处、助手版本不对（输出协议不匹配）
-        reason = stderr or (result.stdout or "").strip() or "没有可解析的输出"
+        reason = stderr or (stdout or "").strip() or "没有可解析的输出"
         if stderr and "sudo" in stderr.lower():
             raise HTTPException(
                 status_code=500,

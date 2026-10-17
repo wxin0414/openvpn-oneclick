@@ -39,6 +39,10 @@ logger = logging.getLogger(__name__)
 HELPER_SOCKET = os.environ.get("HELPER_SOCKET", "/run/ovpn-oneclick/apply.sock")
 SOCKET_CONNECT_TIMEOUT = float(os.environ.get("HELPER_SOCKET_CONNECT_TIMEOUT", "5"))
 
+# Windows 没有 AF_UNIX（开发机上跑测试时会走到这里），此时直接跳过 socket 通道，
+# 由 sudo 兜底（开发机上 sudo 通常也不存在，会抛 HelperUnavailable，测试按此断言即可）。
+_SOCKET_FAMILY = getattr(socket, "AF_UNIX", None)
+
 
 class HelperUnavailable(RuntimeError):
     """两条通道都不可用（既没有 socket，sudo 也失败）。"""
@@ -46,8 +50,10 @@ class HelperUnavailable(RuntimeError):
 
 def _via_socket(action: str, timeout: int) -> tuple[int, str, str] | None:
     """经 socket 激活调用助手；通道不可用时返回 None（由调用方决定是否兜底）。"""
+    if _SOCKET_FAMILY is None:
+        return None
     try:
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock = socket.socket(_SOCKET_FAMILY, socket.SOCK_STREAM)
     except OSError:
         return None
     try:
