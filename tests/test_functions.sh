@@ -286,5 +286,61 @@ else
   printf '  [SKIP] 无 python3，跳过\n'
 fi
 
+printf '\n\033[1;34m== 布局探测（防止重跑把正常 VPN 弄坏）\033[0m\n'
+# 背景：Debian 12 的 openvpn 包同时提供 openvpn@.service 与 openvpn-server@.service。
+# 旧逻辑只看"哪个 unit 存在"，于是重跑安装会选到与既有配置不同的布局：写出竞争
+# 配置、服务读不到它期望的路径而启动失败、两套 unit 都 enable 后互相抢 1194。
+# 现在改为"以已有配置文件为准"，下面把三种情形钉住。
+_layout_probe() { # $1=classic 存在 $2=serverdir 存在 $3=unit 存在
+  local tmp; tmp="$(mktemp -d)" || return 1
+  mkdir -p "$tmp/classic" "$tmp/serverdir" "$tmp/bin"
+  [ "$1" = 1 ] && : > "$tmp/classic/server.conf"
+  [ "$2" = 1 ] && : > "$tmp/serverdir/server.conf"
+  if [ "$3" = 1 ]; then
+    printf '#!/bin/sh\necho "openvpn-server@.service enabled"\n' > "$tmp/bin/systemctl"
+  else
+    printf '#!/bin/sh\nexit 0\n' > "$tmp/bin/systemctl"
+  fi
+  chmod +x "$tmp/bin/systemctl"
+  OVPN_DIR="$tmp/classic"; SERVER_DIR="$tmp/serverdir"; SERVER_CN=server
+  OVPN_SERVICE=""; SERVER_CONF=""
+  PATH="$tmp/bin:$PATH" resolve_openvpn_layout >/dev/null 2>&1
+  local which=other
+  case "$SERVER_CONF" in
+    "$tmp/classic"/*)   which=classic ;;
+    "$tmp/serverdir"/*) which=serverdir ;;
+  esac
+  printf '%s|%s' "$OVPN_SERVICE" "$which"
+  rm -rf "$tmp"
+}
+
+r="$(_layout_probe 1 0 1)"
+check "只有 /etc/openvpn/server.conf 时选 openvpn@server（即使 unit 存在）" \
+  test "$r" = "openvpn@server|classic"
+r="$(_layout_probe 0 1 1)"
+check "只有 /etc/openvpn/server/server.conf 时选 openvpn-server@server" \
+  test "$r" = "openvpn-server@server|serverdir"
+r="$(_layout_probe 1 1 1)"
+check "两套配置并存时沿用 classic 且不切换布局" \
+  test "$r" = "openvpn@server|classic"
+r="$(_layout_probe 0 0 1)"
+check "两者都不存在且 unit 存在时用 openvpn-server@server" \
+  test "$r" = "openvpn-server@server|serverdir"
+r="$(_layout_probe 0 0 0)"
+check "两者都不存在且无 server unit 时用 openvpn@server" \
+  test "$r" = "openvpn@server|classic"
+
+# adopt_layout 必须由**配置路径**推导服务名（只看 unit 会把既有配置配给读另一个
+# 路径的服务 —— 这正是那次事故的直接原因）
+check "adopt_layout 里服务名由 SERVER_CONF 路径决定" \
+  grep -q 'case "$SERVER_CONF" in' "${ROOT}/install.sh"
+# adopt_layout 里若又出现 list-unit-files，说明有人把"按 unit 挑服务名"的老逻辑
+# 加回来了 —— 那正是那次事故的直接原因（配置在 /etc/openvpn/server.conf 却选了
+# openvpn-server@server，后者读的是 /etc/openvpn/server/server.conf，于是起不来）。
+_adopt_uses_unit_check() {
+  awk '/^adopt_layout\(\)/{f=1} f{print} f && /^\}/{exit}' "${ROOT}/install.sh" \
+    | grep -q 'list-unit-files'
+}
+check "adopt_layout 不再按 unit 存在与否挑服务名" not _adopt_uses_unit_check
 printf '\n\033[1;34m==== 结果：通过 %d，失败 %d ====\033[0m\n' "$pass" "$fail"
 [ "$fail" -eq 0 ] || exit 1
