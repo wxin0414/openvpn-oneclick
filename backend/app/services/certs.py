@@ -91,6 +91,22 @@ def build_client_cert(
     key_path = settings.easyrsa_path / "pki" / "private" / f"{client.common_name}.key"
     req_path = settings.easyrsa_path / "pki" / "reqs" / f"{client.common_name}.req"
 
+    # 预检：EasyRSA 要读写 pki/index.txt。若它被 root 动过（例如运维直接以 root
+    # 跑了 easyrsa revoke/gen-crl），属主会变成 root，面板随即无法签发证书。
+    # 不预检的话，失败信息会是几百行 openssl 输出里夹一句
+    # "BIO_new_file: Permission denied"，从界面上根本看不出原因（实测踩过）。
+    index_path = settings.easyrsa_path / "pki" / "index.txt"
+    if index_path.exists() and not (
+        os.access(index_path, os.R_OK) and os.access(index_path, os.W_OK)
+    ):
+        raise RuntimeError(
+            "PKI 索引文件当前身份不可读写："
+            f"{index_path}。通常是因为有人以 root 直接运行过 easyrsa。"
+            "修复：重新执行一次安装脚本（bash install.sh --adopt，会自动把 "
+            "/etc/openvpn/easy-rsa 归还给面板用户），或手工执行 "
+            "chown -R <面板用户>:<面板用户> /etc/openvpn/easy-rsa"
+        )
+
     # If cert/key already exist, reuse them to avoid EasyRSA duplicate request errors
     if not (cert_path.exists() and key_path.exists()):
         # Clean stale req/key to avoid "already exists" errors on retries
