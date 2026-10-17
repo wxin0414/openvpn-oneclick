@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.api.api_v1.endpoints import (
     share,
+    traffic,
     auth,
     clients,
     dashboard,
@@ -29,4 +30,5 @@ api_router.include_router(settings.router, prefix="/settings", tags=["settings"]
 # 面板自身的网络与安全设置：挂在顶层 /panel，避免被 /settings 下的通配路由遮蔽
 api_router.include_router(panel.router, prefix="/panel", tags=["panel"])
 api_router.include_router(share.router, tags=["share"])
+api_router.include_router(traffic.router, prefix="/traffic", tags=["traffic"])
 api_router.include_router(users.router, prefix="/users", tags=["users"])

@@ -34,6 +34,45 @@
         </el-descriptions>
       </section>
 
+      <section class="section-card" v-loading="trafficLoading">
+        <div class="section-card__head">
+          <h2 class="section-card__title">流量（近 {{ trafficHours }} 小时）</h2>
+          <el-select v-model="trafficHours" size="small" style="width: 110px" @change="loadTraffic">
+            <el-option :value="6" label="6 小时" />
+            <el-option :value="24" label="24 小时" />
+            <el-option :value="168" label="7 天" />
+          </el-select>
+        </div>
+        <div
+          v-if="!(traffic && traffic.points && traffic.points.length)"
+          style="color: var(--el-text-color-secondary); font-size: 13px"
+        >
+          {{ (traffic && traffic.message) || "暂无流量数据" }}
+        </div>
+        <template v-else>
+          <svg viewBox="0 0 300 80" preserveAspectRatio="none" style="width: 100%; height: 110px">
+            <path :d="trafficRxPath" fill="none" stroke="#409eff" stroke-width="1.5" />
+            <path :d="trafficTxPath" fill="none" stroke="#67c23a" stroke-width="1.5" />
+          </svg>
+          <div style="font-size: 12px; color: var(--el-text-color-secondary); margin: 6px 0 10px">
+            <span style="color: #409eff">━ 下行 {{ formatBytes(traffic.total_rx) }}</span>
+            <span style="color: #67c23a; margin-left: 12px">━ 上行 {{ formatBytes(traffic.total_tx) }}</span>
+            <span style="margin-left: 12px">
+              采样间隔 {{ traffic.sample_interval }} 秒 · 保留 {{ traffic.retention_days }} 天
+            </span>
+          </div>
+          <el-table :data="traffic.top" size="small">
+            <el-table-column prop="common_name" label="客户端" />
+            <el-table-column label="下行" width="110">
+              <template #default="{ row }">{{ formatBytes(row.rx) }}</template>
+            </el-table-column>
+            <el-table-column label="上行" width="110">
+              <template #default="{ row }">{{ formatBytes(row.tx) }}</template>
+            </el-table-column>
+          </el-table>
+        </template>
+      </section>
+
       <section class="section-card">
         <div class="section-card__head">
           <h2 class="section-card__title">最近连接事件</h2>
@@ -126,6 +165,7 @@
 import { computed, onMounted, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { getDashboardMetrics } from "../api/dashboard";
+import { getTrafficOverview } from "../api/traffic";
 import { formatTimeZh } from "../utils/time";
 import { useBreakpoint } from "../composables/useBreakpoint";
 
@@ -252,7 +292,45 @@ const totalBytesOut = computed(() => {
 const maxConn = computed(() => pickStat("MaxConn", "MAXCONN", "maxconn", "max_conn") ?? "-");
 const maxBcast = computed(() => pickStat("MaxBcast", "MAXBCAST", "maxbcast", "max_bcast") ?? "-");
 
-onMounted(fetchMetrics);
+// ---- 流量历史 ----
+const traffic = ref(null);
+const trafficLoading = ref(false);
+const trafficHours = ref(24);
+
+async function loadTraffic() {
+  trafficLoading.value = true;
+  try {
+    const { data } = await getTrafficOverview(trafficHours.value);
+    traffic.value = data;
+  } catch {
+    traffic.value = null;
+  } finally {
+    trafficLoading.value = false;
+  }
+}
+
+// 手写折线，不引图表库：只有一条曲线，引入 ECharts 会让包体大一个数量级
+function trafficPath(pick) {
+  const pts = traffic.value?.points || [];
+  if (pts.length < 2) return "";
+  const max = Math.max(1, ...pts.map((p) => Math.max(p.rx, p.tx)));
+  return pts
+    .map((p, i) => {
+      const x = (i / (pts.length - 1)) * 300;
+      const y = 76 - (pick(p) / max) * 72;
+      return `${i ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
+}
+
+const trafficRxPath = computed(() => trafficPath((p) => p.rx));
+const trafficTxPath = computed(() => trafficPath((p) => p.tx));
+
+
+onMounted(() => {
+  fetchMetrics();
+  loadTraffic();
+});
 </script>
 
 <style scoped>

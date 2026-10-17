@@ -272,6 +272,20 @@ sudo nginx -t && sudo systemctl reload nginx
 - **NAT 出口网卡。** 下拉里只列真实存在的接口；助手还会交叉验证该接口**确有默认路由**，否则拒绝（改错了客户端立刻失去出网，而重启服务发现不了）。
 - 规则同时写进 `ovpn-oneclick-nat.service`，开机自恢复。
 
+## 流量历史
+
+面板每分钟把管理接口里的累计字节数落一次库（`traffic_samples` 表），Dashboard 用折线图 + Top 客户端表格展示。
+
+- **数据来源**：`management` 接口的 `bytes_received` / `bytes_sent`。它们是**会话累计值**，
+  客户端重连后会归零。所以库里存累计值、聚合时算增量，并对"归零"做专门处理
+  （`cur < prev` 视为从 0 重新开始，而不是算出负流量）。
+- **采样间隔** `TRAFFIC_SAMPLE_SECONDS`（默认 60 秒，最小 15）；
+  **保留期** `TRAFFIC_RETENTION_DAYS`（默认 30 天）。都可用环境变量覆盖。
+- 只有**在线**客户端才有数据；下线后停止累加，历史保留。
+- 图表是**手写 SVG 折线**，没有引入图表库——只有一条上下行曲线，
+  引入 ECharts 会让前端包体大一个数量级。
+- 历史接口：`GET /api/traffic/overview?hours=24`（可选 1–720 小时）。
+
 ## 备份与恢复
 
 **一键备份。** 面板「面板设置 → 备份」，或 `POST /api/panel/backup`。备份四样真正无法重建的东西：PKI（`/etc/openvpn/easy-rsa`）、`server.conf`、`backend/.env`（`SECRET_KEY` 与口令）、`backend/data/app.db`。产物在 `/var/backups/ovpn-oneclick/manual-<时间戳>.tar.gz`，权限 `0600`（内含 CA 私钥与 `SECRET_KEY`，**不要外传**），只保留最近 10 份。备份列表的索引在 `/etc/ovpn-oneclick/backup-index.jsonl`（`0644`，只含路径/大小/时间，不含密钥内容）。

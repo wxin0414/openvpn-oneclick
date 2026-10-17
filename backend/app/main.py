@@ -13,6 +13,7 @@ from app.core.logging_config import setup_logging
 from app.db import base  # noqa: F401
 from app.db.session import engine
 from app.services import jobs, status_sync
+from app.services import traffic as traffic_sync
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -43,10 +44,13 @@ async def lifespan(app: FastAPI):
     * 证书签发/吊销这类秒级 EasyRSA 操作改由后台任务执行，启动时一并收尾。
     """
     status_sync.start_background_sync()
+    # 流量采样：管理接口给的是会话累计字节数，必须定期落库才有历史可看
+    traffic_sync.start_background_sampler()
     try:
         yield
     finally:
         status_sync.stop_background_sync()
+        traffic_sync.stop_background_sampler()
         jobs.registry.shutdown()
 
 
