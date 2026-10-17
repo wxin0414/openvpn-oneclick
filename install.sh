@@ -1373,6 +1373,8 @@ install -D -m 0755 "${TPL_DIR}/apply-dispatch.sh" /usr/local/lib/ovpnmanager/app
   install -D -m 0755 "${TPL_DIR}/net-control.sh" /usr/local/lib/ovpnmanager/net-control
   # 在线升级（异步起后台进程跑 install.sh --update）
   install -D -m 0755 "${TPL_DIR}/self-update.sh" /usr/local/lib/ovpnmanager/self-update
+  # 升级后台工作进程（独立脚本 + 环境变量传参，不做字符串拼接）
+  install -D -m 0755 "${TPL_DIR}/upgrade-worker.sh" /usr/local/lib/ovpnmanager/upgrade-worker
 render "${TPL_DIR}/apply.socket" /etc/systemd/system/apply.socket PANEL_USER "$PANEL_USER"
 install -D -m 0644 "${TPL_DIR}/apply@.service" /etc/systemd/system/apply@.service
 systemctl daemon-reload >/dev/null 2>&1 || true
