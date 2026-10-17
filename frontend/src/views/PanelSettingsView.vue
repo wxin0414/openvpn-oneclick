@@ -7,6 +7,7 @@ import {
   getPanelSettings,
   listBackups,
   restartPanel,
+  restoreBackup,
   updateAdminCredentials,
   updatePanelSettings,
   updateSessionSettings,
@@ -227,6 +228,36 @@ async function doBackup() {
   }
 }
 
+async function doRestore(row) {
+  // 恢复会覆盖 PKI / 配置 / 数据库，因此要求手打确认词，而不是点一下"确定"
+  let input = "";
+  try {
+    const res = await ElMessageBox.prompt(
+      `这会用备份覆盖当前的 CA、server.conf、.env 与数据库，并重启 OpenVPN 与面板。\n恢复前助手会自动再做一次备份，失败会自动还原。\n\n请输入 RESTORE 确认：`,
+      "恢复备份",
+      {
+        confirmButtonText: "确认恢复",
+        cancelButtonText: "取消",
+        inputPlaceholder: "RESTORE",
+        inputValidator: (v) => (v || "").trim().toUpperCase() === "RESTORE" || "请输入 RESTORE",
+        type: "warning",
+      },
+    );
+    input = res.value;
+  } catch {
+    return;
+  }
+  try {
+    const { data } = await restoreBackup(row.backup, (input || "").trim().toUpperCase());
+    await ElMessageBox.alert(data?.note || "已恢复，面板即将重启", "恢复完成", { type: "success" });
+  } catch (err) {
+    const detail = err?.response?.data?.detail;
+    ElMessageBox.alert(typeof detail === "string" ? detail : detail?.message || "恢复失败", "未恢复", {
+      type: "error",
+    });
+  }
+}
+
 function fmtSize(bytes) {
   const n = Number(bytes) || 0;
   if (n >= 1048576) return `${(n / 1048576).toFixed(1)} MB`;
@@ -368,6 +399,11 @@ onMounted(() => {
         </el-table-column>
         <el-table-column prop="files" label="条目" width="80" />
         <el-table-column prop="backup" label="路径" min-width="240" show-overflow-tooltip />
+        <el-table-column label="操作" width="100" fixed="right">
+          <template #default="{ row }">
+            <el-button type="danger" link @click="doRestore(row)">恢复</el-button>
+          </template>
+        </el-table-column>
       </el-table>
       <div v-else class="hint" style="margin-top: 8px">还没有通过面板做过备份。</div>
     </el-card>
