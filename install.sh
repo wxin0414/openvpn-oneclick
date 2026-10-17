@@ -90,6 +90,11 @@ PANEL_PORT="${PANEL_PORT:-8000}"
 # 内部 uvicorn 仍然只监听 127.0.0.1:${PANEL_PORT}，不对外暴露。
 # 需要改端口时用环境变量覆盖：PANEL_WEB_PORT=8080 bash install.sh --auto
 PANEL_WEB_PORT="${PANEL_WEB_PORT:-5698}"
+# 额外允许访问面板的来源，逗号分隔，例如：
+#   PANEL_ALLOW="203.0.113.7,198.51.100.0/24" bash install.sh --auto
+# 面板默认只允许 VPN 隧道网段与本机（见 nginx 模板）；要从公网直连就得把来源
+# 加到这里。注意：allow/deny 是"首次匹配生效"，所以这些行会插在 deny all 之前。
+PANEL_ALLOW="${PANEL_ALLOW:-}"
 PANEL_USER="${PANEL_USER:-ovpnpanel}"
 PANEL_HOME="${PANEL_HOME:-/opt/ovpnmanager}"
 WEB_ROOT="${WEB_ROOT:-/var/www}"
@@ -1106,6 +1111,29 @@ deploy_panel() {
   render "${TPL_DIR}/nginx.conf" "$conf" \
     PANEL_PORT "$PANEL_PORT" PANEL_WEB_PORT "$PANEL_WEB_PORT" WEB_ROOT "$WEB_ROOT" WEB_NAME "$WEB_NAME" \
     VPN_NETWORK "$VPN_NETWORK" VPN_CIDR "$VPN_CIDR"
+
+  # 额外放行来源（PANEL_ALLOW）。必须插在 `deny all` **之前**：
+  # nginx 的 allow/deny 是"首次匹配生效"，追加到 deny all 之后等于永远不生效。
+  # 之前手工改 nginx 配置的放行会在重装/升级时被重新渲染覆盖，这里做成参数后才持久。
+  if [ -n "${PANEL_ALLOW:-}" ]; then
+    local extra_allow; extra_allow="$(mktemp)"
+    : > "$extra_allow"
+    printf '%s\n' "$PANEL_ALLOW" | tr ',' '\n' | while IFS= read -r _cidr; do
+      _cidr="$(printf '%s' "$_cidr" | tr -d '[:space:]')"
+      [ -n "$_cidr" ] && printf '    allow %s;\n' "$_cidr"
+    done > "$extra_allow"
+    if [ -s "$extra_allow" ]; then
+      awk -v f="$extra_allow" '
+        /^[[:space:]]*deny[[:space:]]+all;/ && !done {
+          while ((getline line < f) > 0) print line
+          close(f); done = 1
+        }
+        { print }
+      ' "$conf" > "${conf}.new" && mv "${conf}.new" "$conf"
+      info "已额外放行面板来源：${PANEL_ALLOW}"
+    fi
+    rm -f "$extra_allow"
+  fi
   if [ "$conf" = "/etc/nginx/sites-available/ovpnmanager.conf" ]; then
     ln -sfn "$conf" /etc/nginx/sites-enabled/ovpnmanager.conf
     [ -e /etc/nginx/sites-enabled/default ] && rm -f /etc/nginx/sites-enabled/default
@@ -1474,6 +1502,7 @@ save_state() {
     echo "PANEL_ENABLE=\"${PANEL_ENABLE}\""
     echo "PANEL_PORT=\"${PANEL_PORT}\""
   echo "PANEL_WEB_PORT=\"${PANEL_WEB_PORT}\""
+  echo "PANEL_ALLOW=\"${PANEL_ALLOW}\""
     echo "PANEL_HOME=\"${PANEL_HOME}\""
     echo "WEB_NAME=\"${WEB_NAME}\""
     echo "WEB_ROOT=\"${WEB_ROOT}\""
