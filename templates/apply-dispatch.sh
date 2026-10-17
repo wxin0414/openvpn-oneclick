@@ -38,6 +38,8 @@ HELPERS = {
     "ACTION=server-conf": f"{LIB_DIR}/apply-config",
     # 一键备份：只读操作（产出 tar.gz），不改任何配置
     "ACTION=backup": f"{LIB_DIR}/backup-now",
+    # 从备份恢复：危险操作，助手内部有"恢复前强制备份 + 整体移走 + 失败还原"
+    "ACTION=restore": f"{LIB_DIR}/restore-backup",
 }
 
 

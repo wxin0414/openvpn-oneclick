@@ -1367,6 +1367,8 @@ install_apply_helper() {
 install -D -m 0755 "${TPL_DIR}/apply-dispatch.sh" /usr/local/lib/ovpnmanager/apply-dispatch
   # 一键备份助手（只读操作：产出 tar.gz，不改任何配置）
   install -D -m 0755 "${TPL_DIR}/backup-now.sh" /usr/local/lib/ovpnmanager/backup-now
+  # 恢复助手（危险操作：覆盖 PKI/配置/DB，内部有强制备份与失败还原）
+  install -D -m 0755 "${TPL_DIR}/restore-backup.sh" /usr/local/lib/ovpnmanager/restore-backup
 render "${TPL_DIR}/apply.socket" /etc/systemd/system/apply.socket PANEL_USER "$PANEL_USER"
 install -D -m 0644 "${TPL_DIR}/apply@.service" /etc/systemd/system/apply@.service
 systemctl daemon-reload >/dev/null 2>&1 || true

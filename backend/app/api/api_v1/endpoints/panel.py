@@ -29,7 +29,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
@@ -53,6 +53,8 @@ BACKUP_BIN = os.environ.get("BACKUP_BIN", "/usr/local/lib/ovpnmanager/backup-now
 BACKUP_TIMEOUT_SECONDS = int(os.environ.get("BACKUP_TIMEOUT_SECONDS", "180"))
 # 索引由 backup-now 追加，0644、不含密钥内容，面板无需 root 即可读
 BACKUP_INDEX = os.environ.get("BACKUP_INDEX_FILE", "/etc/ovpn-oneclick/backup-index.jsonl")
+RESTORE_BIN = os.environ.get("RESTORE_BIN", "/usr/local/lib/ovpnmanager/restore-backup")
+RESTORE_TIMEOUT_SECONDS = int(os.environ.get("RESTORE_TIMEOUT_SECONDS", "300"))
 PANEL_DATA_DIR = Path(os.environ.get("PANEL_DATA_DIR", "/opt/ovpnmanager/backend/data"))
 CANDIDATE = PANEL_DATA_DIR / "panel.candidate"
 WEB_NAME = "ovpnmanager"
@@ -148,7 +150,7 @@ def _write_candidate(values: dict[str, str]) -> None:
 
 def _parse_helper(stdout: str) -> dict[str, str]:
     wanted = {"RESULT", "NEW_URL", "PORT_CHANGED", "TLS", "BACKUP",
-              "ROLLED_BACK", "RELOADED", "REASON", "SIZE", "FILES"}
+              "ROLLED_BACK", "RELOADED", "REASON", "SIZE", "FILES", "RESTORED", "PRE_BACKUP"}
     parsed: dict[str, str] = {}
     for raw in stdout.splitlines():
         line = raw.strip()
@@ -459,6 +461,92 @@ def create_backup(db: Session = Depends(deps.get_db), user=Depends(ensure_superu
         "files": int(parsed.get("FILES") or 0),
         "note": "备份含 CA 私钥与 SECRET_KEY，文件权限 0600，请勿外传。",
     }
+
+
+@router.post("/restore")
+def restore_backup(
+    payload: dict = Body(...),
+    db: Session = Depends(deps.get_db),
+    user=Depends(ensure_superuser),
+):
+    """从备份恢复（危险操作）。
+
+    三道闸门：
+      1) 请求体必须带 confirm="RESTORE"（前端要求用户手打，不是点一下确定）；
+      2) 只接受 /var/backups/ovpn-oneclick 下的 manual-*.tar.gz（助手内部还会再校验一次）；
+      3) 助手自己会先做一次"恢复前备份"，并在失败时整体还原。
+
+    面板会在**响应发出之后**再重启自己：恢复会覆盖 app.db，运行中的进程还握着旧库，
+    必须重启才能生效。所以这里用后台定时器，3 秒后再重启，保证响应先发出去。
+    """
+    from app.services import helper_client
+
+    if str(payload.get("confirm", "")).strip().upper() != "RESTORE":
+        raise HTTPException(status_code=400, detail="需要确认：请在请求里带 confirm=RESTORE")
+
+    target = str(payload.get("backup", "")).strip()
+    if not target.startswith("/var/backups/ovpn-oneclick/manual-") or not target.endswith(".tar.gz"):
+        raise HTTPException(
+            status_code=400,
+            detail="只允许恢复 /var/backups/ovpn-oneclick/manual-*.tar.gz",
+        )
+    if "/../" in target:
+        raise HTTPException(status_code=400, detail="路径里不允许出现 ..")
+
+    # 候选文件：0600、属面板用户；助手从这里读目标，避免"用参数传路径"
+    try:
+        CANDIDATE.parent.mkdir(parents=True, exist_ok=True)
+        CANDIDATE.write_text(f"BACKUP={target}\n", encoding="utf-8")
+        os.chmod(CANDIDATE, 0o600)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"无法写候选文件：{exc}") from exc
+
+    try:
+        _rc, stdout, stderr = helper_client.run_helper(
+            "restore", RESTORE_BIN, RESTORE_TIMEOUT_SECONDS
+        )
+    except helper_client.HelperUnavailable as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    parsed = _parse_helper(stdout)
+    if parsed.get("RESULT") != "ok":
+        reason = parsed.get("REASON") or (stderr or "").strip()[:300] or "助手未返回成功结果"
+        safe_audit(db, getattr(user, "username", "?"), "panel.restore", target, f"failed: {reason}")
+        raise HTTPException(status_code=500, detail=f"恢复失败：{reason}")
+
+    safe_audit(db, getattr(user, "username", "?"), "panel.restore", target, "ok")
+    _schedule_self_restart()
+    return {
+        "ok": True,
+        "restored": parsed.get("RESTORED", target),
+        "pre_backup": parsed.get("PRE_BACKUP", ""),
+        "restart_scheduled": True,
+        "note": (
+            "已恢复并重启 OpenVPN。面板将在约 3 秒后自动重启以加载恢复后的数据库，"
+            "请稍后刷新页面重新登录。"
+        ),
+    }
+
+
+def _schedule_self_restart(delay_seconds: float = 3.0) -> None:
+    """响应发出后再重启面板自己（恢复会覆盖 app.db，运行中的进程必须重启）。"""
+    import threading
+
+    def _restart() -> None:
+        try:
+            subprocess.run(
+                [os.environ.get("SYSTEMCTL_BIN", "/usr/local/lib/ovpnmanager/systemctl-wrapper"), "restart"],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=False,
+            )
+        except Exception:  # noqa: BLE001 - 重启失败也不该留下异常线程
+            logger.exception("恢复后自动重启面板失败")
+
+    timer = threading.Timer(delay_seconds, _restart)
+    timer.daemon = True
+    timer.start()
 
 
 @router.post("/restart")
