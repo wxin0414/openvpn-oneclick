@@ -925,34 +925,33 @@ def main() -> int:
     expect("G3 SQLite 处于 WAL 模式（读写不再互相阻塞）", str(journal).lower(), "wal")
 
     # ---- 吊销后不重启服务（只重读 CRL）----
-    calls: list[list[str]] = []
-    original_g_run = g_openvpn._run
+    # 断言的是"apply_crl_change 是否**请求**重启"，而不是它内部怎么执行。
+    # 早期通过替换 _run 来观察，但服务控制后来改成优先走 socket 激活的 root 助手
+    # （面板带 NoNewPrivileges=1，sudo 被内核拒绝），在 CI 这种没有助手的机器上
+    # 会直接抛 RuntimeError，把测试脚本打断（表现为 exit 1 却没有任何 [FAIL]）。
+    # 因此替换 service_action 这一层——它才是 apply_crl_change 真正依赖的边界。
+    sa_calls: list[str] = []
+    original_service_action = g_openvpn.service_action
 
-    def spy_run(cmd, timeout=None):  # noqa: ANN001
-        calls.append(list(cmd))
+    def spy_service_action(action):  # noqa: ANN001
+        sa_calls.append(action)
+        return f"spy-{action}"
 
-        class _R:
-            stdout = ""
-            stderr = ""
-            returncode = 0
-
-        return _R()
-
-    g_openvpn._run = spy_run
+    g_openvpn.service_action = spy_service_action
     try:
         gsettings.revoke_restarts_service = False
         expect("G4 默认 apply_crl_change 不重启服务", g_openvpn.apply_crl_change(), "crl-reloaded")
         check(
-            "G5 默认没有调用 systemctl restart（原实现会把所有人踢下线）",
-            not any("restart" in c for c in calls),
-            str(calls),
+            "G5 默认没有请求重启（原实现会把所有人踢下线）",
+            not sa_calls,
+            str(sa_calls),
         )
         gsettings.revoke_restarts_service = True
         g_openvpn.apply_crl_change()
-        check("G6 显式开启兼容开关后才重启", any("restart" in c for c in calls), str(calls))
+        check("G6 显式开启兼容开关后才重启", sa_calls == ["restart"], str(sa_calls))
     finally:
         gsettings.revoke_restarts_service = False
-        g_openvpn._run = original_g_run
+        g_openvpn.service_action = original_service_action
 
     # ---- OVPNM_DB_PATH 别名（原实现被 extra=ignore 静默丢弃）----
     saved_env = {key: os.environ.get(key) for key in ("OVPNM_DB_PATH", "SQLITE_PATH")}
