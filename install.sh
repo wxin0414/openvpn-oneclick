@@ -390,6 +390,30 @@ install_packages() {
       ;;
     apt)
       export DEBIAN_FRONTEND=noninteractive
+      # 主动换源：仅当源是"Debian 官方境外源"时，实测国内外镜像下载速度，
+      # 国内明显更快就换。为什么不能只靠"失败再换"——实测官方源并非不可达，
+      # 只是慢（能连上、0.5s 握手），而 Debian 12 要拉几十 MB 索引，按那种速度
+      # 要几十分钟；`Acquire::Timeout` 也管不了（收到数据就重置计时）。
+      # 因此必须在动手前测速比较，而不是等它失败。
+      if grep -qE 'deb\.debian\.org|ftp\.[a-z]{2}\.debian\.org|security\.debian\.org' /etc/apt/sources.list 2>/dev/null; then
+        _codename="$(sed -n 's/^VERSION_CODENAME=//p' /etc/os-release 2>/dev/null | tr -d '"' | head -1)"
+        [ -n "$_codename" ] || _codename=bookworm
+        _probe() { curl -s -o /dev/null --max-time 8 -w '%{time_total}' "$1/dists/$_codename/Release" 2>/dev/null || echo 99; }
+        _cur_host="$(grep -m1 -oE 'https?://[^ ]+' /etc/apt/sources.list | sed -E 's#(https?://[^/]+).*#\1#')"
+        _cur_t="$(_probe "$_cur_host/debian")"
+        _best=""; _best_t=99
+        for _m in https://mirrors.aliyun.com https://mirrors.cloud.tencent.com https://mirrors.tuna.tsinghua.edu.cn; do
+          _t="$(_probe "$_m/debian")"
+          awk -v a="$_t" -v b="$_best_t" 'BEGIN{exit !(a<b)}' && { _best="$_m"; _best_t="$_t"; }
+        done
+        info "apt 源测速：当前 ${_cur_host} ${_cur_t}s，最快国内镜像 ${_best:-无} ${_best_t}s"
+        # 国内镜像至少要快 2 倍才值得动用户的源
+        if [ -n "$_best" ] && awk -v a="$_best_t" -v b="$_cur_t" 'BEGIN{exit !(a*2<b)}'; then
+          if switch_apt_mirror; then
+            ok "已切换 apt 源到 ${APT_MIRROR_USED}（原文件备份为 /etc/apt/sources.list.ovpn-oneclick-orig）"
+          fi
+        fi
+      fi
       if ! apt_update_fast; then
         warn "apt-get update 超时或失败（默认源可能在境外），尝试切换国内镜像"
         if switch_apt_mirror; then
