@@ -578,8 +578,14 @@ def read_network(_=Depends(ensure_superuser)):
     except OSError:
         pass
     state = _read_kv_file(NET_STATE)
+    # 可选出口网卡：直接列 /sys/class/net（非 root 可读），让前端给下拉而不是手输
+    try:
+        interfaces = sorted(name for name in os.listdir("/sys/class/net") if name != "lo")
+    except OSError:
+        interfaces = []
     return {
         "ip_forward": forward,
+        "interfaces": interfaces,
         "egress_if": state.get("EGRESS_IF", ""),
         "net": state.get("NET", ""),
         "applied_at": state.get("APPLIED_AT", ""),

@@ -36,5 +36,10 @@ export const listBackups = () => api.get("/panel/backups");
 // 从备份恢复：危险操作，必须带 confirm="RESTORE"（后端强制校验）
 export const restoreBackup = (backup, confirm) => api.post("/panel/restore", { backup, confirm });
 
+// 网络转发：ip_forward 开关 + NAT 出口网卡
+export const getNetwork = () => api.get("/panel/network");
+export const updateNetwork = (ipForward, egressIf) =>
+  api.post("/panel/network", { ip_forward: ipForward, egress_if: egressIf || "" });
+
 // 重启面板服务（走受控的 systemctl 包装脚本）
 export const restartPanel = () => api.post("/panel/restart");

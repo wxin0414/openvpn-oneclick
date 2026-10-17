@@ -5,8 +5,10 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import {
   createBackup,
   getPanelSettings,
+  getNetwork,
   listBackups,
   restartPanel,
+  updateNetwork,
   restoreBackup,
   updateAdminCredentials,
   updatePanelSettings,
@@ -258,6 +260,49 @@ async function doRestore(row) {
   }
 }
 
+// ---- 网络转发 ----
+const net = reactive({ ip_forward: true, egress_if: "", interfaces: [], net: "", applied_at: "" });
+const savingNet = ref(false);
+
+async function loadNetwork() {
+  try {
+    const { data } = await getNetwork();
+    net.ip_forward = !!data.ip_forward;
+    net.egress_if = data.egress_if || "";
+    net.interfaces = data.interfaces || [];
+    net.net = data.net || "";
+    net.applied_at = data.applied_at || "";
+  } catch {
+    /* 读失败就保持原样，不打扰用户 */
+  }
+}
+
+async function saveNetwork() {
+  if (!net.ip_forward) {
+    try {
+      await ElMessageBox.confirm(
+        "关闭 ip_forward 后，已连接的客户端会立刻失去出网（除非你自己做了其它转发）。",
+        "确认关闭转发",
+        { confirmButtonText: "仍然关闭", cancelButtonText: "取消", type: "warning" },
+      );
+    } catch {
+      return;
+    }
+  }
+  savingNet.value = true;
+  try {
+    const { data } = await updateNetwork(net.ip_forward, net.egress_if);
+    ElMessage.success(data?.note || "已应用");
+    if (data?.warning) ElMessageBox.alert(data.warning, "注意", { type: "warning" });
+    await loadNetwork();
+  } catch (err) {
+    const detail = err?.response?.data?.detail;
+    ElMessage.error(typeof detail === "string" ? detail : detail?.message || "应用失败");
+  } finally {
+    savingNet.value = false;
+  }
+}
+
 function fmtSize(bytes) {
   const n = Number(bytes) || 0;
   if (n >= 1048576) return `${(n / 1048576).toFixed(1)} MB`;
@@ -268,6 +313,7 @@ function fmtSize(bytes) {
 onMounted(() => {
   load();
   loadBackups();
+  loadNetwork();
 });
 </script>
 
@@ -379,6 +425,28 @@ onMounted(() => {
       </el-form>
       <div class="actions">
         <el-button type="primary" @click="saveAdmin">更新账号</el-button>
+      </div>
+    </el-card>
+
+    <el-card class="section-card" shadow="never">
+      <template #header><b>网络转发</b></template>
+      <el-form label-position="top">
+        <el-form-item label="ip_forward（内核转发）">
+          <el-switch v-model="net.ip_forward" active-text="开启" inactive-text="关闭" />
+          <div class="hint">关闭等于客户端不能出网。OpenVPN 服务本身不会因此报错，所以这里单独提供开关。</div>
+        </el-form-item>
+        <el-form-item label="NAT 出口网卡">
+          <el-select v-model="net.egress_if" placeholder="保持当前" clearable style="width: 100%">
+            <el-option v-for="name in net.interfaces" :key="name" :label="name" :value="name" />
+          </el-select>
+          <div class="hint">
+            只有确实带默认路由的网卡才能选（助手会校验）。当前生效：
+            {{ net.egress_if || "未知" }}<span v-if="net.net">，网段 {{ net.net }}</span>
+          </div>
+        </el-form-item>
+      </el-form>
+      <div class="actions">
+        <el-button type="primary" :loading="savingNet" @click="saveNetwork">应用网络设置</el-button>
       </div>
     </el-card>
 
