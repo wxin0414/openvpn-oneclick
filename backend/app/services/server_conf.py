@@ -83,6 +83,7 @@ PUSH_ALLOW_PREFIXES: tuple[str, ...] = (
     "sndbuf",
     "rcvbuf",
     "ifconfig-ipv6",
+    "block-outside-dns",
 )
 
 # block-ipv6 方案里下发给客户端的 IPv6 地址（与 install.sh 写入的一致）。
@@ -122,6 +123,9 @@ _VALID_AUTH: tuple[str, ...] = ("SHA512", "SHA256", "SHA1", "none")
 _PUSH_DNS_RE = re.compile(r"^dhcp-option\s+DNS\s+(\S+)$", re.IGNORECASE)
 _PUSH_ROUTE_RE = re.compile(r"^route\s+(\S+)(?:\s+(\S+))?$", re.IGNORECASE)
 _PUSH_REDIRECT_RE = re.compile(r"^redirect-gateway\b", re.IGNORECASE)
+# Windows 客户端会绕过隧道直接用本地 DNS（DNS 泄漏）。push block-outside-dns
+# 让它们把「隧道外」网卡的 DNS 也交给隧道。无参数，必须整行精确匹配。
+_PUSH_BLOCK_OUTSIDE_DNS_RE = re.compile(r"^block-outside-dns$", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -490,6 +494,7 @@ def parse_push_directives(push_directives: tuple[str, ...] | list[str]) -> dict:
     dns: list[str] = []
     routes: list[str] = []
     redirect = False
+    block_outside = False
     for raw in push_directives:
         directive = " ".join(str(raw).split())
         dns_match = _PUSH_DNS_RE.match(directive)
@@ -499,12 +504,20 @@ def parse_push_directives(push_directives: tuple[str, ...] | list[str]) -> dict:
         if _PUSH_REDIRECT_RE.match(directive):
             redirect = True
             continue
+        if _PUSH_BLOCK_OUTSIDE_DNS_RE.match(directive):
+            block_outside = True
+            continue
         route_match = _PUSH_ROUTE_RE.match(directive)
         if route_match:
             cidr = _route_to_cidr(route_match.group(1), route_match.group(2))
             if cidr:
                 routes.append(cidr)
-    return {"dns_servers": dns, "routes": routes, "redirect_gateway": redirect}
+    return {
+        "dns_servers": dns,
+        "routes": routes,
+        "redirect_gateway": redirect,
+        "block_outside_dns": block_outside,
+    }
 
 
 def editable_settings(conf: ServerConf, pushes: dict) -> dict:
@@ -540,6 +553,7 @@ def editable_settings(conf: ServerConf, pushes: dict) -> dict:
         "verb": conf.verb,
         "mute": conf.mute,
         "inactive": conf.inactive,
+        "block_outside_dns": bool(pushes.get("block_outside_dns")),
         # data-ciphers / auth 是可编辑项（在 EDITABLE_KEYS 与托管块里），必须出现在
         # 这里。曾经只加进了 readonly_settings，导致"能写、读不回"：面板显示空值，
         # 每次保存都被判成"已修改"。实测在 110.42.102.239 上发现。
@@ -590,6 +604,7 @@ EDITABLE_KEYS: tuple[str, ...] = (
     "verb",
     "mute",
     "inactive",
+    "block_outside_dns",
 )
 
 _NULLABLE_INTS = {"mssfix", "sndbuf", "rcvbuf", "max_clients"}
@@ -677,6 +692,10 @@ def validate_editable(payload: dict, *, current: dict) -> list[str]:
         elif key == "tls_version_min":
             if value is not None and value not in _VALID_TLS_MIN:
                 problems.append(f"tls_version_min 只能是 {'/'.join(_VALID_TLS_MIN)} 或 null")
+        elif key == "block_outside_dns":
+            # 纯开关：不接受字符串 "true"/1，避免「看起来设了其实没设」
+            if not isinstance(value, bool):
+                problems.append("block_outside_dns 必须是 true 或 false")
         elif key in ("log_append", "status_file"):
             # OpenVPN 以非 root 运行，只有 /var/log/openvpn 被授权写入。
             # 允许改到别处必然导致降权后写不了日志、服务起不来（虽然会回滚，

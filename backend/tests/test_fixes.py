@@ -1294,7 +1294,7 @@ def main() -> int:
             "explicit-exit-notify 1",
             "keepalive 10 60",
             "client-to-client",
-            'push "block-outside-dns"',
+            'push "route-gateway 10.8.44.1"',
             "log-append /var/log/openvpn/openvpn.log",
             "crl-verify /etc/openvpn/server/crl.pem",
             "management 127.0.0.1 7505",
@@ -1344,8 +1344,8 @@ def main() -> int:
     )
     check(
         "J29b 运维自己写的 push 不被接管（面板没能力表达它，不能替用户删）",
-        j_adopted_out.count('push "block-outside-dns"') == 1
-        and f'{j_conf.RETIRED_PREFIX}push "block-outside-dns"' not in j_adopted_out,
+        j_adopted_out.count('push "route-gateway 10.8.44.1"') == 1
+        and f'{j_conf.RETIRED_PREFIX}push "route-gateway 10.8.44.1"' not in j_adopted_out,
         j_adopted_out,
     )
     j_marker_line = f"  {j_conf.MANAGED_BEGIN}  "

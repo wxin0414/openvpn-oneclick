@@ -260,6 +260,8 @@ def render_managed_block(settings_dict: dict) -> list[str]:
         lines.append(f"mute {int(settings_dict['mute'])}")
     if settings_dict.get("inactive") is not None:
         lines.append(f"inactive {int(settings_dict['inactive'])}")
+    if settings_dict.get("block_outside_dns"):
+        lines.append(_push("block-outside-dns"))
     for key in ("user", "group"):
         value = settings_dict.get(key)
         if value:
@@ -427,6 +429,10 @@ def _push_problems(payload: str) -> list[str]:
     if first == "dhcp-option":
         if len(parts) < 3 or parts[1] != "DNS":
             return [f"push dhcp-option 只允许 DNS 形式（dhcp-option DNS <地址>）：{payload}"]
+    elif first == "block-outside-dns":
+        # 无参数指令：多一个词就拒绝，避免拼错时被 OpenVPN 静默忽略
+        if len(parts) != 1:
+            problems.append(f"push block-outside-dns 不接受参数：{payload}")
     elif first == "sndbuf" or first == "rcvbuf":
         if len(parts) != 2 or not parts[1].isdigit():
             problems.append(f"push {first} 只允许跟一个整数：{payload}")

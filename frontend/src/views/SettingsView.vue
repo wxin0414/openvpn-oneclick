@@ -261,6 +261,14 @@
             <div v-if="errors.inactive" class="field-tip err">{{ errors.inactive }}</div>
             <div v-else class="field-tip">秒；0 = 禁用。空闲超过该时间自动断开，配合「最大连接数」回收名额。</div>
           </el-form-item>
+
+          <el-form-item label="阻断隧道外 DNS (block-outside-dns)">
+            <el-switch v-model="form.block_outside_dns" active-text="开启" inactive-text="关闭" />
+            <div class="field-tip">
+              Windows 客户端默认会绕过隧道、直接用本地网卡的 DNS（DNS 泄漏）。
+              开启后把这些查询也拉进隧道。**仅对 Windows 有意义**，其他系统会忽略这条 push。
+            </div>
+          </el-form-item>
           <el-form-item label="发送缓冲区 (sndbuf)" required>
             <el-input-number v-model="form.sndbuf" :min="0" :max="BUFFER_MAX" :step="1024" controls-position="right" />
             <div v-if="errors.sndbuf" class="field-tip err">{{ errors.sndbuf }}</div>
@@ -402,6 +410,7 @@ const SETTINGS_KEYS = [
   "verb",
   "mute",
   "inactive",
+  "block_outside_dns",
 ];
 
 // 下拉选项。接口若返回列表外的值，会以“当前值”占位追加，避免静默改写配置。
@@ -469,6 +478,7 @@ const form = reactive({
   verb: null,
   mute: null,
   inactive: null,
+  block_outside_dns: false,
 });
 
 // 只读指令单独存一份，避免模板里对可能为 null 的对象取属性。

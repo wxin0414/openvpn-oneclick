@@ -4,6 +4,34 @@
 
 关于版本号：仓库历史中 `VERSION.txt` 由 `1.2.2` 直接跳到 `1.2.4`，没有 1.2.3 的独立提交，因此这里没有 `[1.2.3]` 条目。1.2.2 与 1.2.3 都因下列安装缺陷无法在 Debian 12 上完成安装，修复集中在 1.2.4。
 
+## [1.3.2] — 2026-10-17
+
+补齐第 6 个托管参数，`block-outside-dns`（Windows 客户端 DNS 泄漏）。
+
+### 新增
+
+- **`push "block-outside-dns"`**：面板「服务端设置」里一个开关。Windows 客户端默认会
+  绕过隧道、直接用本地网卡的 DNS，内网域名因此解析不到；开启后把这些查询也拉进隧道。
+  其他系统会忽略这条 push。
+- 它是 **push 型**指令（不是标量），因此走的是另一条链路：助手 `PUSH_ALLOW`、
+  面板 `PUSH_ALLOW_PREFIXES`、`parse_push_directives` 三处都要同步；校验也换成
+  "无参数指令，多一个词就拒绝"，避免拼错被 OpenVPN 静默忽略。
+- 服务端可编辑项 28 → 29，push 允许前缀 6 → 7。
+
+### 修复 — 测试用例的前提失效
+
+`J29b`（"运维自己写的 push 不被接管"）原来拿 `push "block-outside-dns"` 当
+"面板表达不了"的例子。它现在被面板托管了，前提不再成立。改用一个首词确实不受管的
+形态 `push "route-gateway 10.8.44.1"`。
+
+中间还踩了一次：先改成 `push "dhcp-option WINS 10.0.0.1"`，结果它被 retire 了——
+因为 `dhcp-option` 属于受管前缀，`_retire_managed_lines` 会把整条注释退役，
+而不是原样保留。这也说明"面板表达不了"的判据是**首词是否在受管前缀里**，
+不是"是否被识别成某种形态"。
+
+真机验证（110.42.102.239）：开启后 `server.conf` 出现 `push "block-outside-dns"`、
+读回 `true`、`{"block_outside_dns":"yes"}` 与 `1` 均被 400 拒绝、关闭后残留 0 行、
+OpenVPN 全程 active、导出的 `client.ovpn` 不含该行（它是服务端 push，本就不该进客户端）。
 ## [1.3.1] — 2026-10-17
 
 补齐 5 个此前只能 SSH 改的 OpenVPN 参数，并建立 CI。

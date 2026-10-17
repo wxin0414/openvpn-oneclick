@@ -18,7 +18,7 @@ MANAGED_ALLOW="port proto server topology data-ciphers auth user group log-appen
 # 允许出现在 push 里的前缀
 # ifconfig-ipv6 是 --block-ipv6 方案需要的（给客户端一个"看着合法"的 IPv6 配置，
 # 再把 IPv6 默认路由拉进隧道后由服务端黑洞掉）
-PUSH_ALLOW="dhcp-option redirect-gateway route sndbuf rcvbuf ifconfig-ipv6"
+PUSH_ALLOW="dhcp-option redirect-gateway route sndbuf rcvbuf ifconfig-ipv6 block-outside-dns"
 
 # 托管块内的指令名（小写，去重；忽略注释行）
 # 注意必须跳过注释：安装脚本自己就会在托管块里写几行说明（以 # 开头）。

@@ -182,6 +182,7 @@ sudo nginx -t && sudo systemctl reload nginx
 | 隧道与路由 | 分流路由（CIDR） | 同上，仅分流模式生效；全局代理模式下提交的路由会被忽略并回显说明 |
 | 隧道与路由 | 屏蔽 IPv6 | `push "ifconfig-ipv6 ..."`、`push "redirect-gateway ipv6"`、`block-ipv6` |
 | DNS | 推送 DNS（最多 2 个，IPv4 / IPv6 均可） | `push "dhcp-option DNS <地址>"` |
+| DNS | 阻断隧道外 DNS（Windows 防泄漏） | `push "block-outside-dns"`：Windows 客户端默认会绕过隧道用本地网卡的 DNS，开启后把这些查询也拉进隧道；其他系统忽略 |
 | 性能 | `mssfix`（0-1500） | `mssfix` |
 | 性能 | `sndbuf` / `rcvbuf`（0-10485760） | 服务端两条标量，并**同时推给客户端**两条 `push` |
 | 性能 | `keepalive`（两个整数，如 `10 120`） | `keepalive` |
