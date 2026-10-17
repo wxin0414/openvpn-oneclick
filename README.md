@@ -378,6 +378,22 @@ Dashboard 新增「证书到期」卡片：列出未来 30 天内会到期的客
 
 参考数据：单核 AES-256-GCM 约 1.68 GB/s（≈13 Gbps），**加密从来不是瓶颈**，真正的上限是链路带宽。可用 `bash install.sh --perf-report` 之外的第三方工具实测；本仓库的实测方法与结论记录在 `docs/` 中。
 
+## 只读运维账号（viewer）
+
+除管理员外，可以建**只读**账号：能看所有页面与数据，**所有写操作被拒绝**（403）。
+
+```bash
+curl -X POST http://127.0.0.1:5698/api/users/ \
+  -H "Authorization: Bearer <管理员令牌>" -H 'Content-Type: application/json' \
+  -d '{"username":"ops","password":"<强口令>","is_superuser":false,"role":"viewer"}'
+```
+
+- 拦截由**全局中间件**完成：只认"HTTP 方法是不是写"和"路径是不是 `/api/`"，因此
+  **以后新增的端点自动受保护**，不会漏。逐个端点加依赖一定会漏。
+- 放行 `POST /api/auth/login`（否则只读账号连登录都做不到）。
+- 令牌无效时仍返回 401 而不是伪装成 403；数据库异常时放行（宁可漏拦也不误封）。
+- 升级上来的机器会自动 `ALTER TABLE users ADD COLUMN role`，默认 `admin`——原有账号权限不变。
+
 ## 维护
 
 **升级。** 先看版本，再升级（都要 root 与出网）：

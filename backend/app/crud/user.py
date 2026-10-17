@@ -18,6 +18,8 @@ class CRUDUser(CRUDBase[User, UserCreate, UserUpdate]):
             hashed_password=hashed_password,
             is_active=obj_in.is_active,
             is_superuser=obj_in.is_superuser,
+            # 这一行漏了会让"创建 viewer"静默变成 admin（实测踩过）
+            role=obj_in.role,
         )
         db.add(db_obj)
         db.commit()

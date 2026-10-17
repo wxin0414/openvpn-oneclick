@@ -16,4 +16,6 @@ class User(Base):
     hashed_password: Mapped[str] = mapped_column(String(255))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_superuser: Mapped[bool] = mapped_column(Boolean, default=False)
+    # admin：全部权限；viewer：只读运维（能看所有页面，所有写操作被中间件拦掉）
+    role: Mapped[str] = mapped_column(String(20), default="admin")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now_shanghai_naive)

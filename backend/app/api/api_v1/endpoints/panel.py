@@ -35,6 +35,7 @@ from sqlalchemy.orm import Session
 
 from app import crud
 from app.api import deps
+from app.api.security import get_current_user
 from app.api.api_v1.endpoints.users import ensure_superuser
 from app.services.audit import safe_audit
 
@@ -298,7 +299,7 @@ class SessionIn(BaseModel):
 # --- 接口 -----------------------------------------------------------------------
 @router.get("")
 @router.get("/")
-def read_panel_settings(request: Request, _=Depends(ensure_superuser)):
+def read_panel_settings(request: Request, _=Depends(get_current_user)):
     state = _read_state()
     allow_mode = state.get("PANEL_ALLOW_MODE") or "vpn"
     tls_mode = state.get("PANEL_TLS_MODE") or "off"
@@ -411,7 +412,7 @@ def update_admin_credentials(
 
 
 @router.get("/session")
-def read_session(_=Depends(ensure_superuser)):
+def read_session(_=Depends(get_current_user)):
     return {"session_minutes": int(_read_env_value("ACCESS_TOKEN_EXPIRE_MINUTES") or 120)}
 
 
@@ -434,7 +435,7 @@ def update_session(
 
 
 @router.get("/backups")
-def list_backups(_=Depends(ensure_superuser)):
+def list_backups(_=Depends(get_current_user)):
     """列出最近的手动备份（读助手写的索引，不需要 root）。
 
     只返回路径/大小/条目数/时间，不含任何密钥内容。
@@ -575,7 +576,7 @@ def _schedule_self_restart(delay_seconds: float = 3.0) -> None:
 
 
 @router.get("/network")
-def read_network(_=Depends(ensure_superuser)):
+def read_network(_=Depends(get_current_user)):
     """读当前网络状态：ip_forward 直接读 /proc（只读），出口网卡读助手写的 state。"""
     forward = False
     try:
@@ -652,7 +653,7 @@ def update_network(
 
 
 @router.get("/upgrade/check")
-def check_upgrade(_=Depends(ensure_superuser)):
+def check_upgrade(_=Depends(get_current_user)):
     """检查是否有新版本。只读：拉远端 VERSION.txt 比对，不下载、不执行任何东西。
 
     远端地址固定在本仓库的 raw 上（不接收调用方传入的 URL，避免变成 SSRF 跳板）。
@@ -698,7 +699,7 @@ def check_upgrade(_=Depends(ensure_superuser)):
 
 
 @router.get("/upgrade/status")
-def upgrade_status(_=Depends(ensure_superuser)):
+def upgrade_status(_=Depends(get_current_user)):
     """读升级进度。升级是异步的（会重启面板），所以前端轮询这个接口。"""
     state = _read_kv_file(UPGRADE_STATE)
     if not state:

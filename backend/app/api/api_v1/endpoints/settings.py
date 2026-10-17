@@ -138,8 +138,8 @@ def get_server_settings(user=Depends(get_current_user)) -> dict:
     ``managed_block_present`` 说明配置里是否已有面板托管块（迁移过来的旧配置
     第一次保存前会是 false）。
     """
-    if not user.is_superuser:
-        raise HTTPException(status_code=403, detail="Not enough privileges")
+    # 读取对所有已登录账号开放（只读运维也需要看当前配置）；写入仍要求超管，
+    # 且 viewer 的写请求会被 ReadOnlyGuard 中间件提前拦掉。
     conf = _require_conf()
     pushes = server_conf.parse_push_directives(conf.push_directives)
     text = server_conf.read_text() or ""

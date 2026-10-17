@@ -54,6 +54,23 @@ async def lifespan(app: FastAPI):
         jobs.registry.shutdown()
 
 
+def _ensure_user_role_column() -> None:
+    """给已存在的 users 表补 role 列。
+
+    ``create_all`` 只建新表、不会给已有表加列，所以升级上来的机器必须显式 ALTER；
+    否则 User 模型一读 role 就报 "no such column"。默认取 admin，保证升级后原有账号
+    权限不变。
+    """
+    try:
+        with engine.begin() as conn:
+            cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(users)")}
+            if "role" not in cols:
+                conn.exec_driver_sql(
+                    "ALTER TABLE users ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'admin'"
+                )
+    except Exception:  # noqa: BLE001 - 非 SQLite 或表不存在时跳过
+        pass
+
 def create_app() -> FastAPI:
     is_dev = settings.deploy_env.upper() == "DEV"
 
@@ -82,6 +99,7 @@ def create_app() -> FastAPI:
 
     base.Base.metadata.create_all(bind=engine)
     _ensure_indexes()
+    _ensure_user_role_column()
 
     # seed default admin if not exists
     with get_db_context() as db:
@@ -100,7 +118,12 @@ def create_app() -> FastAPI:
                 ),
             )
 
+    from app.api.readonly_guard import ReadOnlyGuard
+
     app.include_router(api_router, prefix=settings.api_v1_prefix)
+
+    # 只读角色护栏：viewer 的所有写请求在这里被挡掉（新增路由自动受保护）
+    app.add_middleware(ReadOnlyGuard)
 
     # 一次性下载链接必须**不需要登录**：同事拿到链接时还没连上 VPN。
     # 安全性由令牌保证（一次性、限时、数据库只存 sha256），不依赖来源 IP。

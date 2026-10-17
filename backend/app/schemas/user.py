@@ -1,5 +1,7 @@
 from datetime import datetime
 
+from typing import Literal
+
 from pydantic import BaseModel, EmailStr, Field
 
 
@@ -8,6 +10,7 @@ class UserBase(BaseModel):
     email: EmailStr | None = None
     is_active: bool = True
     is_superuser: bool = False
+    role: Literal["admin", "viewer"] = "admin"
 
 
 class UserCreate(UserBase):
@@ -19,6 +22,7 @@ class UserUpdate(BaseModel):
     password: str | None = Field(default=None, min_length=6)
     is_active: bool | None = None
     is_superuser: bool | None = None
+    role: Literal["admin", "viewer"] | None = None
 
 
 class User(UserBase):
