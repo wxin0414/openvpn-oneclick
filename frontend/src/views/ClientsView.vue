@@ -30,7 +30,7 @@
     </div>
 
     <section class="section-card">
-      <el-table v-if="!isMobile" :data="displayedClients" style="width: 100%" v-loading="loading">
+      <el-table v-if="isDesktop" :data="displayedClients" style="width: 100%" v-loading="loading">
         <el-table-column prop="name" label="名称" />
         <el-table-column prop="common_name" label="证书CN" />
         <el-table-column prop="fixed_ip" label="固定IP" width="140" />
@@ -52,8 +52,9 @@
         </el-table-column>
       </el-table>
 
-      <!-- Phones get cards: a 6-column table would force horizontal scrolling. -->
-      <div v-else class="mobile-list" v-loading="loading">
+      <!-- Phones and tablets get cards: the six-column table (four action
+           buttons wide) would force horizontal scrolling below 1200px. -->
+      <div v-else class="client-list" v-loading="loading">
         <article v-for="row in displayedClients" :key="row.id" class="mobile-item">
           <div class="mobile-item__head">
             <span class="mobile-item__title">
@@ -189,7 +190,7 @@ import { waitForJob } from "../api/jobs";
 import { debounce } from "lodash-es";
 import { useBreakpoint } from "../composables/useBreakpoint";
 
-const { isMobile } = useBreakpoint();
+const { isMobile, isDesktop } = useBreakpoint();
 
 const clients = ref([]);
 const loading = ref(false);
@@ -565,6 +566,12 @@ onMounted(fetchData);
 </script>
 
 <style scoped>
+.client-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-2);
+}
+
 .mobile-item__actions {
   display: flex;
   align-items: center;
@@ -583,15 +590,10 @@ onMounted(fetchData);
   color: var(--text-muted);
 }
 
-.pagination {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: var(--space-4);
-}
-
-@media (max-width: 767.98px) {
-  .pagination {
-    justify-content: center;
+@media (min-width: 768px) {
+  .client-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-3);
   }
 }
 </style>

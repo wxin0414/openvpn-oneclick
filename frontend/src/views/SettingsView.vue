@@ -879,6 +879,10 @@ onMounted(() => reload(false));
 }
 
 @media (max-width: 767.98px) {
+  .settings-form .el-input-number {
+    width: 100%;
+  }
+
   .control-field,
   .row-input {
     max-width: none;

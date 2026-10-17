@@ -110,7 +110,7 @@ const pageTitles = {
   "/servers": "服务器管理",
   "/clients": "客户端管理",
   "/settings": "服务端设置",
-  "/logs": "日志审计",
+  "/logs": "审计日志",
   "/openvpn": "OpenVPN 控制",
 };
 

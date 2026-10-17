@@ -2,7 +2,7 @@
   <div class="page">
     <div class="page-header">
       <div class="page-header__text">
-        <h1 class="page-header__title">日志审计</h1>
+        <h1 class="page-header__title">审计日志</h1>
         <p class="page-header__subtitle">按动作与时间范围检索登录、证书与连接操作记录</p>
       </div>
     </div>
@@ -181,17 +181,5 @@ onMounted(fetchLogs);
 <style scoped>
 .logs-filter {
   margin-bottom: var(--space-4);
-}
-
-.pagination {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: var(--space-4);
-}
-
-@media (max-width: 767.98px) {
-  .pagination {
-    justify-content: center;
-  }
 }
 </style>

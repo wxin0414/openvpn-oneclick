@@ -11,17 +11,13 @@
 :root {
   /* Brand - one steady indigo, used for every primary affordance. */
   --brand-50: #eceef8;
-  --brand-100: #d9dcf0;
-  --brand-400: #7985cb;
   --brand-500: #3f51b5;
   --brand-700: #303f9f;
-  --brand-900: #1a237e;
 
   /* Semantic colours. The *-soft variants back the light tints and dots. */
   --success: #16a34a;
   --success-soft: #e8f6ed;
   --warning: #d97706;
-  --warning-soft: #fbf1e6;
   --danger: #dc2626;
   --danger-soft: #fce9e9;
   --info: #64748b;
@@ -302,6 +298,13 @@
   grid-column: 1 / -1;
 }
 
+/* Pager row shared by the paginated tables/lists. */
+.pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-4);
+}
+
 /* --------------------------------------------------------------------------
    Mobile card list - used instead of a horizontally scrolling table.
    -------------------------------------------------------------------------- */
@@ -433,6 +436,13 @@
   outline-offset: 2px;
 }
 
+/* el-drawer teleports its DOM to <body>, so its internal padding can only be
+   reset from a global stylesheet. The mobile sidebar paints its own surface. */
+.app-drawer .el-drawer__body {
+  padding: 0;
+  overflow: hidden;
+}
+
 /* --------------------------------------------------------------------------
    Breakpoints.
    mobile < 768px  |  tablet 768-1199px  |  desktop >= 1200px
@@ -442,13 +452,6 @@
   .section-card {
     padding: var(--space-5);
   }
-}
-
-/* el-drawer teleports its DOM to <body>, so its internal padding can only be
-   reset from a global stylesheet. The mobile sidebar paints its own surface. */
-.app-drawer .el-drawer__body {
-  padding: 0;
-  overflow: hidden;
 }
 
 @media (max-width: 767.98px) {
@@ -498,5 +501,9 @@
 
   .section-card__head {
     align-items: flex-start;
+  }
+
+  .pagination {
+    justify-content: center;
   }
 }
