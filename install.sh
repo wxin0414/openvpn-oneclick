@@ -705,8 +705,9 @@ status-version 3
 # ---- 固定 IP / 每客户端路由 ----
 client-config-dir ${CCD_DIR}
 
-user nobody
-group ${OVPN_GROUP}
+# user/group 属于下方的托管块（面板可改），这里不再重复写。
+# 之前这里把 user 写死成 nobody，而 OVPN_USER 在 nobody 不存在时会退成 root，
+# 两处不一致会让「面板显示的用户」与「实际降权的用户」不同。
 
 log-append ${LOG_DIR}/openvpn.log
 verb 3
@@ -721,6 +722,8 @@ server ${VPN_NETWORK} ${VPN_NETMASK}
 topology subnet
 data-ciphers AES-256-GCM:AES-128-GCM:CHACHA20-POLY1305
 auth SHA256
+user ${OVPN_USER}
+group ${OVPN_GROUP}
 ${dns_lines}
 ${push_routes}
 ${ipv6_lines}
