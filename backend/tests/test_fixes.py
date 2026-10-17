@@ -789,9 +789,18 @@ def main() -> int:
         # 而不是未捕获异常（TestClient 默认会把未捕获异常重新抛出，导致测试直接报错）
         restarted = client.post("/api/openvpn/restart", headers=headers)
         expect("H3 服务控制失败时返回受控的 500", restarted.status_code, 500)
+        # 服务控制已改走 socket 助手（面板带 NoNewPrivileges=1，sudo 被内核拒绝），
+        # 因此在没有该助手的机器上，错误信息会变成
+        #   sudo: /usr/local/lib/ovpnmanager/service-control: command not found
+        # 这依然是可读且可行动的（点名了缺失的程序），只是不再包含 "systemctl"。
+        # 断言相应放宽为"能指明失败原因"，而不是匹配某个具体工具名。
+        _detail = str(restarted.json().get("detail", ""))
         check(
-            "H4 错误信息可读（包含 systemctl/无法执行）",
-            any(token in str(restarted.json().get("detail", "")) for token in ("systemctl", "无法执行")),
+            "H4 错误信息可读（指明失败原因）",
+            any(
+                token in _detail
+                for token in ("systemctl", "无法执行", "service-control", "command not found", "No such file")
+            ),
             str(restarted.json())[:200],
         )
 
