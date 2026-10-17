@@ -315,6 +315,71 @@ pkg_install() {
   esac
 }
 
+# ---------------------------------------------------------------------------
+# apt 源处理
+# ---------------------------------------------------------------------------
+# 为什么需要这段：全新 Debian 12 的默认源多在境外（ftp.us.debian.org），在国内
+# 服务器上 `apt-get update` 会长时间挂住且**没有任何输出**，用户看到的就是"一键
+# 安装卡死"。实测在该机器上等了 15 分钟仍未返回。
+# 处理方式：① 给 apt 加超时让它快速失败；② 失败后自动切换国内镜像并重试；
+# ③ 只处理"看起来是官方默认源"的情况，不覆盖用户自定义的源，且改前留备份。
+APT_MIRROR_USED=""
+
+apt_update_fast() {
+  apt-get -o Acquire::http::Timeout=15 \
+          -o Acquire::https::Timeout=15 \
+          -o Acquire::Retries=2 \
+          -o Acquire::ForceIPv4=true \
+          update -qq
+}
+
+switch_apt_mirror() {
+  local codename mirror src=/etc/apt/sources.list deb822=/etc/apt/sources.list.d/debian.sources
+  codename="$(sed -n 's/^VERSION_CODENAME=//p' /etc/os-release 2>/dev/null | tr -d '"' | head -1)"
+  [ -n "$codename" ] || codename=bookworm
+
+  # 只在"官方默认源"上动手；自定义源不碰
+  if [ -f "$src" ]; then
+    grep -qE 'deb\.debian\.org|ftp\.[a-z]{2}\.debian\.org' "$src" || src=""
+  else
+    src=""
+  fi
+  local use_deb822=0
+  if [ -z "$src" ] && [ -f "$deb822" ]; then
+    grep -qE 'deb\.debian\.org|ftp\.[a-z]{2}\.debian\.org' "$deb822" || return 1
+    use_deb822=1
+  fi
+  [ -n "$src" ] || [ "$use_deb822" = "1" ] || return 1
+
+  for mirror in "${APT_MIRROR:-}" "https://mirrors.aliyun.com" "https://mirrors.cloud.tencent.com" "https://mirrors.tuna.tsinghua.edu.cn"; do
+    [ -n "$mirror" ] || continue
+    mirror="${mirror%/}"
+    if [ "$use_deb822" = "1" ]; then
+      cp -a "$deb822" "${deb822}.ovpn-oneclick-orig" 2>/dev/null || true
+      sed -i -E "s#^URIs:.*#URIs: ${mirror}/debian#; s#^Suites:.*#Suites: ${codename} ${codename}-updates ${codename}-backports ${codename}-security#" "$deb822"
+    else
+      cp -a "$src" "${src}.ovpn-oneclick-orig" 2>/dev/null || true
+      {
+        printf 'deb %s/debian %s main contrib non-free non-free-firmware\n' "$mirror" "$codename"
+        printf 'deb %s/debian %s-updates main contrib non-free non-free-firmware\n' "$mirror" "$codename"
+        printf 'deb %s/debian-security %s-security main contrib non-free non-free-firmware\n' "$mirror" "$codename"
+      } > "$src"
+    fi
+    if apt_update_fast; then
+      APT_MIRROR_USED="$mirror"
+      return 0
+    fi
+  done
+
+  # 全部失败：还原
+  if [ "$use_deb822" = "1" ] && [ -f "${deb822}.ovpn-oneclick-orig" ]; then
+    cp -a "${deb822}.ovpn-oneclick-orig" "$deb822" 2>/dev/null || true
+  elif [ -n "$src" ] && [ -f "${src}.ovpn-oneclick-orig" ]; then
+    cp -a "${src}.ovpn-oneclick-orig" "$src" 2>/dev/null || true
+  fi
+  return 1
+}
+
 install_packages() {
   step "安装依赖包"
   case "$PKG" in
@@ -325,7 +390,15 @@ install_packages() {
       ;;
     apt)
       export DEBIAN_FRONTEND=noninteractive
-      apt-get update -qq || warn "apt-get update 失败，继续尝试"
+      if ! apt_update_fast; then
+        warn "apt-get update 超时或失败（默认源可能在境外），尝试切换国内镜像"
+        if switch_apt_mirror; then
+          ok "已切换 apt 源到 ${APT_MIRROR_USED}（原文件备份为 /etc/apt/sources.list.ovpn-oneclick-orig）"
+          warn "注意：换源只影响本次安装；若你希望保留，可自行编辑 /etc/apt/sources.list"
+        else
+          warn "换源后仍失败，继续尝试安装（若包已缓存则仍可成功）"
+        fi
+      fi
       pkg_install openvpn easy-rsa openssl nginx python3 python3-venv python3-pip curl ca-certificates logrotate iptables rsync || die "依赖安装失败"
       ;;
   esac
