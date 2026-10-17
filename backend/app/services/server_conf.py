@@ -131,6 +131,8 @@ class ServerConf:
     cipher: str | None = None
     data_ciphers: str | None = None
     auth: str | None = None
+    user: str | None = None
+    group: str | None = None
     tls_mode: str | None = None
     status_version: int | None = None
     management: str | None = None
@@ -229,6 +231,7 @@ def _parse(path: Path) -> ServerConf:
     netmask: str | None = None
     topology = "unknown"
     cipher = data_ciphers = auth = tls_mode = None
+    user = group = None
     status_version: int | None = None
     management = crl_verify = client_config_dir = None
     pushes: list[str] = []
@@ -268,6 +271,10 @@ def _parse(path: Path) -> ServerConf:
             duplicate_cn = True
         elif key == "block-ipv6":
             block_ipv6 = True
+        elif key == "user" and arg:
+            user = arg
+        elif key == "group" and arg:
+            group = arg
         elif key == "cipher" and arg:
             cipher = arg
         elif key == "data-ciphers" and arg:
@@ -309,6 +316,8 @@ def _parse(path: Path) -> ServerConf:
         topology=topology,
         cipher=cipher,
         data_ciphers=data_ciphers,
+        user=user,
+        group=group,
         auth=auth,
         tls_mode=tls_mode,
         status_version=status_version,
@@ -484,6 +493,8 @@ def editable_settings(conf: ServerConf, pushes: dict) -> dict:
         "network": str(conf.network.network_address) if is_ipv4 else None,
         "network_cidr": conf.network_cidr,
         "netmask": conf.netmask_or_default,
+        "user": conf.user,
+        "group": conf.group,
         "topology": conf.topology if conf.topology in _VALID_TOPOLOGIES else DEFAULT_EDITABLE_TOPOLOGY,
     }
 

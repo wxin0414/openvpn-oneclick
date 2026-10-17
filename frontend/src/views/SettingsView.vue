@@ -624,6 +624,13 @@ const collectRisks = () => {
         "保存后必须重新导出全部客户端并重新分发。",
     );
   }
+  if (before.user !== form.user || before.group !== form.group) {
+    risks.push(
+      "<b>运行用户/组已修改</b>：OpenVPN 启动后会降权到该用户。若该用户不存在、或降权后" +
+        "读不到证书 / 写不了日志，服务会起不来——助手会自动回滚并恢复原配置，" +
+        "但期间隧道会中断几秒。",
+    );
+  }
   if (before.network !== form.network || before.netmask !== form.netmask) {
     risks.push(
       "<b>网段或掩码已修改</b>：NAT 规则和面板自身的 nginx 放行规则会被重建，OpenVPN 服务会重启；" +
