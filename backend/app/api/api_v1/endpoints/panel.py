@@ -60,6 +60,9 @@ NET_TIMEOUT_SECONDS = int(os.environ.get("NET_TIMEOUT_SECONDS", "120"))
 NET_STATE = os.environ.get("NET_STATE_FILE", "/etc/ovpn-oneclick/net.state")
 NET_CANDIDATE = Path(os.environ.get("NET_CANDIDATE", "/opt/ovpnmanager/backend/data/net.candidate"))
 # 升级检查读取的远端地址（固定，不接受调用方传入）
+UPDATE_BIN = os.environ.get("UPDATE_BIN", "/usr/local/lib/ovpnmanager/self-update")
+UPDATE_TIMEOUT_SECONDS = int(os.environ.get("UPDATE_TIMEOUT_SECONDS", "120"))
+UPGRADE_STATE = os.environ.get("UPGRADE_STATE_FILE", "/etc/ovpn-oneclick/upgrade.state")
 UPGRADE_VERSION_URL = os.environ.get(
     "UPGRADE_VERSION_URL",
     "https://raw.githubusercontent.com/wxin0414/openvpn-oneclick/main/VERSION.txt",
@@ -175,7 +178,7 @@ def _write_candidate(values: dict[str, str]) -> None:
 
 def _parse_helper(stdout: str) -> dict[str, str]:
     wanted = {"RESULT", "NEW_URL", "PORT_CHANGED", "TLS", "BACKUP",
-              "ROLLED_BACK", "RELOADED", "REASON", "SIZE", "FILES", "RESTORED", "PRE_BACKUP", "IP_FORWARD", "EGRESS_IF", "NET", "WARNING"}
+              "ROLLED_BACK", "RELOADED", "REASON", "SIZE", "FILES", "RESTORED", "PRE_BACKUP", "IP_FORWARD", "EGRESS_IF", "NET", "WARNING", "STATUS", "FROM", "TO", "LOG"}
     parsed: dict[str, str] = {}
     for raw in stdout.splitlines():
         line = raw.strip()
@@ -694,6 +697,69 @@ def check_upgrade(_=Depends(ensure_superuser)):
         "update_available": update_available,
         "error": error,
         "note": "检查会读取本仓库的 VERSION.txt，只比对版本号；真正升级会先做备份。",
+    }
+
+
+@router.get("/upgrade/status")
+def upgrade_status(_=Depends(ensure_superuser)):
+    """读升级进度。升级是异步的（会重启面板），所以前端轮询这个接口。"""
+    state = _read_kv_file(UPGRADE_STATE)
+    if not state:
+        return {"status": "idle", "from": "", "to": "", "log": "", "reason": ""}
+    return {
+        "status": state.get("STATUS", "unknown"),
+        "from": state.get("FROM", ""),
+        "to": state.get("TO", ""),
+        "started_at": state.get("STARTED_AT", ""),
+        "finished_at": state.get("FINISHED_AT", ""),
+        "log": state.get("LOG", ""),
+        "reason": state.get("REASON", ""),
+    }
+
+
+@router.post("/upgrade")
+def start_upgrade(
+    payload: dict = Body(...),
+    db: Session = Depends(deps.get_db),
+    user=Depends(ensure_superuser),
+):
+    """触发在线升级（异步）。
+
+    这是本项目唯一会"下载并执行远端代码"的动作，所以：
+      - 必须手打 confirm="UPGRADE"；
+      - 下载地址写死在 root 所有的 panel.conf，面板不能传；
+      - 助手对下载到的脚本做标记自检（缺 SCRIPT_VERSION / 项目标识就拒绝执行）；
+      - 只调用安装器的 `--update`（它内部会先 backup_current）；
+      - 立即返回 STARTED，进度由 GET /upgrade/status 轮询（升级会重启面板）。
+    """
+    from app.services import helper_client
+
+    if str(payload.get("confirm", "")).strip().upper() != "UPGRADE":
+        raise HTTPException(status_code=400, detail="需要确认：请在请求里带 confirm=UPGRADE")
+
+    try:
+        _rc, stdout, stderr = helper_client.run_helper("self-update", UPDATE_BIN, UPDATE_TIMEOUT_SECONDS)
+    except helper_client.HelperUnavailable as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    parsed = _parse_helper(stdout)
+    if parsed.get("RESULT") != "ok":
+        reason = parsed.get("REASON") or (stderr or "").strip()[:300] or "助手未返回成功结果"
+        safe_audit(db, getattr(user, "username", "?"), "panel.upgrade", "-", f"failed: {reason}")
+        raise HTTPException(status_code=500, detail=f"升级未启动：{reason}")
+
+    safe_audit(db, getattr(user, "username", "?"), "panel.upgrade",
+               f"{parsed.get('FROM', '?')}->{parsed.get('TO', '?')}", "started")
+    return {
+        "ok": True,
+        "started": True,
+        "from": parsed.get("FROM", ""),
+        "to": parsed.get("TO", ""),
+        "log": parsed.get("LOG", ""),
+        "note": (
+            "升级已在后台开始。面板会在升级过程中重启，请稍后刷新页面，"
+            "并在「当前状态」里确认版本号已变化。"
+        ),
     }
 
 

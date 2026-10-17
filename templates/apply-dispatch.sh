@@ -42,6 +42,8 @@ HELPERS = {
     "ACTION=restore": f"{LIB_DIR}/restore-backup",
     # 网络控制：ip_forward 开关 + NAT 出口网卡
     "ACTION=net": f"{LIB_DIR}/net-control",
+    # 在线升级：异步（起后台进程跑 install.sh --update），只返回 STARTED
+    "ACTION=self-update": f"{LIB_DIR}/self-update",
 }
 
 
