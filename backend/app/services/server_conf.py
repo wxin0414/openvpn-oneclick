@@ -58,6 +58,8 @@ MANAGED_SCALARS: frozenset[str] = frozenset(
         "max-clients",
         "duplicate-cn",
         "block-ipv6",
+        "data-ciphers",
+        "auth",
     }
 )
 
@@ -95,6 +97,17 @@ DEFAULT_EDITABLE_TOPOLOGY = "subnet"
 # proto 只开放 udp/tcp 两种可编辑取值（见 validate_editable）；这里只校验
 # keepalive 与三种 push 形态。
 _KEEPALIVE_RE = re.compile(r"^\d+ \d+$")
+
+# 可编辑的加密套件与认证摘要（OpenVPN 2.6 常用集合）。
+# 刻意用白名单而不是自由字符串：写错一个套件名会让服务端直接起不来。
+_VALID_CIPHERS: tuple[str, ...] = (
+    "AES-256-GCM",
+    "AES-128-GCM",
+    "CHACHA20-POLY1305",
+    "AES-256-CBC",
+    "AES-128-CBC",
+)
+_VALID_AUTH: tuple[str, ...] = ("SHA512", "SHA256", "SHA1", "none")
 _PUSH_DNS_RE = re.compile(r"^dhcp-option\s+DNS\s+(\S+)$", re.IGNORECASE)
 _PUSH_ROUTE_RE = re.compile(r"^route\s+(\S+)(?:\s+(\S+))?$", re.IGNORECASE)
 _PUSH_REDIRECT_RE = re.compile(r"^redirect-gateway\b", re.IGNORECASE)
@@ -503,6 +516,8 @@ EDITABLE_KEYS: tuple[str, ...] = (
     "network",
     "netmask",
     "topology",
+    "data_ciphers",
+    "auth",
 )
 
 _NULLABLE_INTS = {"mssfix", "sndbuf", "rcvbuf", "max_clients"}
@@ -569,6 +584,20 @@ def validate_editable(payload: dict, *, current: dict) -> list[str]:
                 problems.append("mssfix 必须在 0-1500 之间")
             elif key != "mssfix" and not 0 <= value <= 10485760:
                 problems.append(f"{key} 必须在 0-10485760 之间")
+        elif key == "auth":
+            if value is not None and value not in _VALID_AUTH:
+                problems.append(f"auth 只能是 {'/'.join(_VALID_AUTH)} 或 null")
+        elif key == "data_ciphers":
+            if value is not None:
+                if not isinstance(value, str):
+                    problems.append("data_ciphers 必须是冒号分隔的字符串")
+                else:
+                    items = [x.strip() for x in value.split(":") if x.strip()]
+                    if not items:
+                        problems.append("data_ciphers 不能为空")
+                    for item in items:
+                        if item not in _VALID_CIPHERS:
+                            problems.append(f"data_ciphers 含不支持的加密套件：{item}")
         elif key == "keepalive":
             if value is not None and (not isinstance(value, str) or not _KEEPALIVE_RE.match(value)):
                 problems.append('keepalive 必须形如 "10 120"（两个整数）或 null')

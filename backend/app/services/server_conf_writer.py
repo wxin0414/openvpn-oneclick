@@ -83,6 +83,8 @@ MANAGED_DIRECTIVES: tuple[str, ...] = (
     "proto",
     "server",
     "topology",
+    "data-ciphers",
+    "auth",
     "mssfix",
     "sndbuf",
     "rcvbuf",
@@ -117,6 +119,8 @@ RENDER_ORDER: tuple[str, ...] = (
     "explicit-exit-notify",
     "server",
     "topology",
+    "data-ciphers",
+    "auth",
     "mssfix",
     "sndbuf",
     "rcvbuf",
@@ -217,6 +221,12 @@ def render_managed_block(settings_dict: dict) -> list[str]:
         value = settings_dict.get(key)
         if value is not None and value != "":
             lines.append(f"{key} {int(value)}")
+    # 加密套件与认证摘要：字符串，原样写入；取值已在 validate_editable 里
+    # 按白名单校验过，这里不重复判断。
+    if settings_dict.get("data_ciphers"):
+        lines.append(f"data-ciphers {settings_dict['data_ciphers']}")
+    if settings_dict.get("auth"):
+        lines.append(f"auth {settings_dict['auth']}")
     # 收发缓冲还必须**推给客户端**：只调服务端一侧的话客户端仍然是小缓冲，
     # 吞吐收益主要来自两端一起放大。install.sh 写入的托管块里本来就有这两条 push，
     # 面板若不输出，用户保存一次设置后客户端就再也拿不到缓冲调优（静默回退）。
