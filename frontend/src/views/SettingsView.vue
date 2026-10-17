@@ -190,6 +190,24 @@
             <div v-if="errors.mssfix" class="field-tip err">{{ errors.mssfix }}</div>
             <div v-else class="field-tip">0-1500，用于避免分片，常见值 1420。</div>
           </el-form-item>
+          <el-form-item label="加密套件 (data-ciphers)">
+            <el-input v-model="form.data_ciphers" placeholder="AES-256-GCM:AES-128-GCM:CHACHA20-POLY1305" />
+            <div v-if="errors.data_ciphers" class="field-tip err">{{ errors.data_ciphers }}</div>
+            <div v-else class="field-tip">
+              冒号分隔，可选 AES-256-GCM / AES-128-GCM / CHACHA20-POLY1305 / AES-256-CBC / AES-128-CBC。
+              改了之后已发出的 .ovpn 需要重新导出。
+            </div>
+          </el-form-item>
+
+          <el-form-item label="认证摘要 (auth)">
+            <el-select v-model="form.auth" style="width: 100%">
+              <el-option label="SHA512" value="SHA512" />
+              <el-option label="SHA256（推荐）" value="SHA256" />
+              <el-option label="SHA1" value="SHA1" />
+              <el-option label="none" value="none" />
+            </el-select>
+            <div class="field-tip">只有全部套件都是 AEAD（GCM/CHACHA20）时 none 才有意义。</div>
+          </el-form-item>
           <el-form-item label="发送缓冲区 (sndbuf)" required>
             <el-input-number v-model="form.sndbuf" :min="0" :max="BUFFER_MAX" :step="1024" controls-position="right" />
             <div v-if="errors.sndbuf" class="field-tip err">{{ errors.sndbuf }}</div>
@@ -322,6 +340,8 @@ const SETTINGS_KEYS = [
   "network",
   "netmask",
   "topology",
+  "data_ciphers",
+  "auth",
 ];
 
 // 下拉选项。接口若返回列表外的值，会以“当前值”占位追加，避免静默改写配置。
@@ -377,6 +397,8 @@ const form = reactive({
   network: "",
   netmask: "",
   topology: "subnet",
+  data_ciphers: "",
+  auth: "",
 });
 
 // 只读指令单独存一份，避免模板里对可能为 null 的对象取属性。
