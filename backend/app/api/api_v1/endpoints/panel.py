@@ -55,6 +55,10 @@ BACKUP_TIMEOUT_SECONDS = int(os.environ.get("BACKUP_TIMEOUT_SECONDS", "180"))
 BACKUP_INDEX = os.environ.get("BACKUP_INDEX_FILE", "/etc/ovpn-oneclick/backup-index.jsonl")
 RESTORE_BIN = os.environ.get("RESTORE_BIN", "/usr/local/lib/ovpnmanager/restore-backup")
 RESTORE_TIMEOUT_SECONDS = int(os.environ.get("RESTORE_TIMEOUT_SECONDS", "300"))
+NET_BIN = os.environ.get("NET_BIN", "/usr/local/lib/ovpnmanager/net-control")
+NET_TIMEOUT_SECONDS = int(os.environ.get("NET_TIMEOUT_SECONDS", "120"))
+NET_STATE = os.environ.get("NET_STATE_FILE", "/etc/ovpn-oneclick/net.state")
+NET_CANDIDATE = Path(os.environ.get("NET_CANDIDATE", "/opt/ovpnmanager/backend/data/net.candidate"))
 PANEL_DATA_DIR = Path(os.environ.get("PANEL_DATA_DIR", "/opt/ovpnmanager/backend/data"))
 CANDIDATE = PANEL_DATA_DIR / "panel.candidate"
 WEB_NAME = "ovpnmanager"
@@ -67,6 +71,22 @@ MAX_CIDRS = 32
 
 
 # --- 读当前生效值 ---------------------------------------------------------------
+def _read_kv_file(path: str) -> dict[str, str]:
+    """解析任意 KEY="VALUE" 形式的状态文件（不存在或不可读时返回空）。"""
+    result: dict[str, str] = {}
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except OSError:
+        return result
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        result[key.strip()] = value.strip().strip('"').strip("'")
+    return result
+
+
 def _read_state() -> dict[str, str]:
     """解析 root 助手写下的 panel.state（KEY="VALUE" 形式）。文件不存在时返回空。"""
     state: dict[str, str] = {}
@@ -150,7 +170,7 @@ def _write_candidate(values: dict[str, str]) -> None:
 
 def _parse_helper(stdout: str) -> dict[str, str]:
     wanted = {"RESULT", "NEW_URL", "PORT_CHANGED", "TLS", "BACKUP",
-              "ROLLED_BACK", "RELOADED", "REASON", "SIZE", "FILES", "RESTORED", "PRE_BACKUP"}
+              "ROLLED_BACK", "RELOADED", "REASON", "SIZE", "FILES", "RESTORED", "PRE_BACKUP", "IP_FORWARD", "EGRESS_IF", "NET", "WARNING"}
     parsed: dict[str, str] = {}
     for raw in stdout.splitlines():
         line = raw.strip()
@@ -547,6 +567,77 @@ def _schedule_self_restart(delay_seconds: float = 3.0) -> None:
     timer = threading.Timer(delay_seconds, _restart)
     timer.daemon = True
     timer.start()
+
+
+@router.get("/network")
+def read_network(_=Depends(ensure_superuser)):
+    """读当前网络状态：ip_forward 直接读 /proc（只读），出口网卡读助手写的 state。"""
+    forward = False
+    try:
+        forward = Path("/proc/sys/net/ipv4/ip_forward").read_text(encoding="utf-8").strip() == "1"
+    except OSError:
+        pass
+    state = _read_kv_file(NET_STATE)
+    return {
+        "ip_forward": forward,
+        "egress_if": state.get("EGRESS_IF", ""),
+        "net": state.get("NET", ""),
+        "applied_at": state.get("APPLIED_AT", ""),
+        "state_present": bool(state),
+    }
+
+
+@router.post("/network")
+def update_network(
+    payload: dict = Body(...),
+    db: Session = Depends(deps.get_db),
+    user=Depends(ensure_superuser),
+):
+    """改 ip_forward 与 NAT 出口网卡。
+
+    网卡必须真实存在且确有默认路由——助手会再校验一次；改错会让已连客户端立刻
+    失去出网，而 OpenVPN 服务本身还是 active（重启发现不了），所以这一条不能省。
+    """
+    from app.services import helper_client
+
+    want_forward = payload.get("ip_forward")
+    if not isinstance(want_forward, bool):
+        raise HTTPException(status_code=400, detail="ip_forward 必须是 true 或 false")
+
+    egress = str(payload.get("egress_if") or "").strip()
+    if egress and not re.match(r"^[A-Za-z0-9_.:-]{1,15}$", egress):
+        raise HTTPException(status_code=400, detail="网卡名不合法")
+
+    try:
+        NET_CANDIDATE.parent.mkdir(parents=True, exist_ok=True)
+        NET_CANDIDATE.write_text(
+            f"IP_FORWARD={1 if want_forward else 0}\nEGRESS_IF={egress}\n", encoding="utf-8"
+        )
+        os.chmod(NET_CANDIDATE, 0o600)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"无法写候选文件：{exc}") from exc
+
+    try:
+        _rc, stdout, stderr = helper_client.run_helper("net", NET_BIN, NET_TIMEOUT_SECONDS)
+    except helper_client.HelperUnavailable as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    parsed = _parse_helper(stdout)
+    if parsed.get("RESULT") != "ok":
+        reason = parsed.get("REASON") or (stderr or "").strip()[:300] or "助手未返回成功结果"
+        safe_audit(db, getattr(user, "username", "?"), "panel.network", egress or "-", f"failed: {reason}")
+        raise HTTPException(status_code=500, detail=f"网络设置未生效：{reason}")
+
+    safe_audit(db, getattr(user, "username", "?"), "panel.network", parsed.get("EGRESS_IF", egress),
+               f"ok ip_forward={parsed.get('IP_FORWARD')}")
+    return {
+        "ok": True,
+        "ip_forward": parsed.get("IP_FORWARD") == "1",
+        "egress_if": parsed.get("EGRESS_IF", egress),
+        "net": parsed.get("NET", ""),
+        "warning": parsed.get("WARNING", ""),
+        "note": "已应用。NAT 规则已重建并写入 ovpn-oneclick-nat.service（开机自恢复）。",
+    }
 
 
 @router.post("/restart")

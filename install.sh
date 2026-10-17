@@ -1369,6 +1369,8 @@ install -D -m 0755 "${TPL_DIR}/apply-dispatch.sh" /usr/local/lib/ovpnmanager/app
   install -D -m 0755 "${TPL_DIR}/backup-now.sh" /usr/local/lib/ovpnmanager/backup-now
   # 恢复助手（危险操作：覆盖 PKI/配置/DB，内部有强制备份与失败还原）
   install -D -m 0755 "${TPL_DIR}/restore-backup.sh" /usr/local/lib/ovpnmanager/restore-backup
+  # 网络控制（ip_forward 开关 + NAT 出口网卡）
+  install -D -m 0755 "${TPL_DIR}/net-control.sh" /usr/local/lib/ovpnmanager/net-control
 render "${TPL_DIR}/apply.socket" /etc/systemd/system/apply.socket PANEL_USER "$PANEL_USER"
 install -D -m 0644 "${TPL_DIR}/apply@.service" /etc/systemd/system/apply@.service
 systemctl daemon-reload >/dev/null 2>&1 || true

@@ -40,6 +40,8 @@ HELPERS = {
     "ACTION=backup": f"{LIB_DIR}/backup-now",
     # 从备份恢复：危险操作，助手内部有"恢复前强制备份 + 整体移走 + 失败还原"
     "ACTION=restore": f"{LIB_DIR}/restore-backup",
+    # 网络控制：ip_forward 开关 + NAT 出口网卡
+    "ACTION=net": f"{LIB_DIR}/net-control",
 }
 
 
