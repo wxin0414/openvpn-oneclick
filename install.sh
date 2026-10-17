@@ -1148,7 +1148,7 @@ fetch_panel() {
   WORK_DIR="$(mktemp -d)"
   local dst="${WORK_DIR}/panel.tar.gz"
   info "下载 ${PANEL_TARBALL_URL}"
-  if ! curl -fL --connect-timeout 15 --retry 2 -o "$dst" "$PANEL_TARBALL_URL" 2>/dev/null; then
+  if ! curl -fL --connect-timeout 15 --speed-limit 1024 --speed-time 30 --retry 5 --retry-delay 3 --continue-at - -o "$dst" "$PANEL_TARBALL_URL" 2>/dev/null; then
     die "面板包下载失败：${PANEL_TARBALL_URL}
 
     常见原因：
