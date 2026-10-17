@@ -158,25 +158,17 @@ def _parse_helper(stdout: str) -> dict[str, str]:
 
 
 def _run_helper() -> tuple[int, str, str]:
+    # 经 helper_client 调用：**socket 激活优先、sudo 兜底**。
+    # 必须这样做的原因见 app/services/helper_client.py：受 NoNewPrivileges 限制的
+    # 环境里面板内任何 sudo 都会失败，只有 systemd 以 root 拉起的通道可用。
+    from app.services import helper_client
+
     try:
-        proc = subprocess.run(
-            [APPLY_PANEL_CONFIG_BIN],
-            capture_output=True,
-            text=True,
-            timeout=APPLY_TIMEOUT_SECONDS,
-            check=False,
+        return helper_client.run_helper(
+            "panel-config", APPLY_PANEL_CONFIG_BIN, APPLY_TIMEOUT_SECONDS
         )
-    except FileNotFoundError as exc:
-        raise HTTPException(
-            status_code=500, detail=f"找不到面板设置助手：{APPLY_PANEL_CONFIG_BIN}"
-        ) from exc
-    except subprocess.TimeoutExpired as exc:
-        raise HTTPException(status_code=504, detail="面板设置助手执行超时") from exc
-    except OSError as exc:
-        raise HTTPException(status_code=500, detail=f"无法执行面板设置助手：{exc}") from exc
-    if proc.stderr:
-        logger.info("apply-panel-config stderr: %s", proc.stderr.strip()[:500])
-    return proc.returncode, proc.stdout, proc.stderr
+    except helper_client.HelperUnavailable as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 # --- 请求模型 -------------------------------------------------------------------

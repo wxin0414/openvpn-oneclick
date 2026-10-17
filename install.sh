@@ -1320,7 +1320,24 @@ install_apply_helper() {
   # 面板需要能写候选文件：数据目录已归面板用户，这里确保一下
   install -d -o "$PANEL_USER" -g "$PANEL_USER" -m 0750 "${PANEL_HOME}/backend/data" 2>/dev/null || true
 
-  ok "设置助手就绪：/usr/local/lib/ovpnmanager/apply-config（sudoers 已授权且不接受参数）"
+  # 特权助手通道：socket 激活（免疫 NoNewPrivileges）
+# --------------------------------------------------
+# 云厂商的机器常给面板进程施加 NoNewPrivileges，导致面板内**任何 sudo 都失败**：
+#   sudo: The "no new privileges" flag is set, which prevents sudo from running as root.
+# 从 unit 里关不掉（实测 unit 无该设置、systemd 也报 no，进程里仍是 1）。
+# 而 systemd 以 root 启动 User=root 的服务不需要"获取"权限，因此改走 socket 激活：
+# 面板连 /run/ovpn-oneclick/apply.sock 发一行动作，systemd 拉起 root 助手来处理。
+install -D -m 0755 "${TPL_DIR}/apply-dispatch.sh" /usr/local/lib/ovpnmanager/apply-dispatch
+render "${TPL_DIR}/apply.socket" /etc/systemd/system/apply.socket PANEL_USER "$PANEL_USER"
+install -D -m 0644 "${TPL_DIR}/apply@.service" /etc/systemd/system/apply@.service
+systemctl daemon-reload >/dev/null 2>&1 || true
+if systemctl enable --now apply.socket >/dev/null 2>&1; then
+  ok "特权助手通道就绪：apply.socket（socket 激活，不依赖 sudo）"
+else
+  warn "apply.socket 启用失败，面板将退回 sudo 通道（受 NoNewPrivileges 限制的环境会失败）"
+fi
+
+ok "设置助手就绪：/usr/local/lib/ovpnmanager/apply-config（sudoers 已授权且不接受参数）"
 }
 
 # ---------------------------------------------------------------------------

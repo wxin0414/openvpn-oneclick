@@ -1,0 +1,29 @@
+[Unit]
+Description=ovpn-oneclick 特权助手套接字
+Documentation=https://github.com/wxin0414/openvpn-oneclick
+# 为什么需要这个 socket
+# --------------------
+# 很多云厂商的机器会给面板进程额外施加 NoNewPrivileges + seccomp（即使 unit 里
+# 明确写着 NoNewPrivileges=no、systemd 也报 no，进程 /proc/<pid>/status 里
+# 仍然是 NoNewPrivs:1）。这种情况下面板内的 **任何 sudo 都会失败**：
+#   sudo: The "no new privileges" flag is set, which prevents sudo from running as root.
+# 而 systemd 以 root 启动一个 User=root 的服务**不需要获取权限**，因此不受影响。
+# 所以特权操作改走 socket 激活，而不是 sudo。
+#
+# 为什么是 Accept=yes
+# -------------------
+# Accept=no 时 systemd 传给服务的是**监听** socket，对它 read() 会得到 EINVAL。
+# Accept=yes 时 systemd 自己 accept，把**已建立的连接**作为 stdin/stdout 交给
+# apply@<实例>.service，这才是标准 inetd 模式。
+
+[Socket]
+ListenStream=/run/ovpn-oneclick/apply.sock
+SocketMode=0660
+SocketUser=root
+SocketGroup=__PANEL_USER__
+DirectoryMode=0755
+Accept=yes
+RemoveOnStop=true
+
+[Install]
+WantedBy=sockets.target

@@ -1,0 +1,20 @@
+[Unit]
+Description=ovpn-oneclick 特权助手分发器（每连接一实例）
+Documentation=https://github.com/wxin0414/openvpn-oneclick
+# 由 apply.socket（Accept=yes）为每个连接拉起一个实例，处理完即退出。
+# 以 root 运行**无需** sudo —— 这是绕开 NoNewPrivileges 限制的关键。
+
+[Service]
+Type=exec
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal
+ExecStart=/usr/local/lib/ovpnmanager/apply-dispatch
+
+User=root
+Group=root
+PrivateTmp=yes
+NoNewPrivileges=no
+# 客户端不发数据就一直挂着连接时，由这里兜底杀掉
+TimeoutStartSec=60
+KillMode=process
