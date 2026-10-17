@@ -21,7 +21,7 @@ sudo bash install.sh --auto
 - 自动构建 PKI：EasyRSA 生成 CA、服务端证书与 CRL，`openvpn --genkey` 生成 tls-crypt 密钥，`openssl` 生成 DH 参数。
 - PKI 按文件分步补齐：上次装到一半失败，重跑会接着装，而不是被"PKI 已存在"整段跳过。
 - 自动开启 `net.ipv4.ip_forward` 并配置 NAT：firewalld 活动时用 masquerade，否则写 iptables 脚本 + `ovpn-oneclick-nat.service` 持久化。
-- 面板由 nginx 同源发布（`/ovpnmanager/` 静态页 + `/api/` 反向代理），面板进程本身只监听 `127.0.0.1`。
+- 面板由 nginx 同源发布（`/ovpnmanager/` 静态页 + `/api/` 反向代理），对外端口默认 **TCP 5698**，面板进程本身只监听 `127.0.0.1`。
 - 检测到机器上已有别人装的 OpenVPN 时默认**拒绝继续**，要求显式选择 `--adopt`（只补面板需要的指令）或 `--force`（备份后重写）。
 
 **面板管理**
@@ -59,9 +59,9 @@ sudo bash install.sh --auto
 | 权限 | root，用 `sudo bash install.sh` 运行 |
 | 网络 | 需出网：发行版软件包源、本仓库的安装载荷、可选 Python 包源 |
 | 地址 | 一个公网 IPv4 或域名；`--auto` 时自动探测，也可用 `--serveraddr` 指定 |
-| 端口 | OpenVPN 默认 **UDP 1194**（可改）；面板经 nginx 走 **TCP 80**，面板进程只监听 `127.0.0.1:8000` |
+| 端口 | OpenVPN 默认 **UDP 1194**（可改）；面板经 nginx 走 **TCP 5698**，面板进程只监听 `127.0.0.1:8000` |
 
-云服务器还需在安全组/防火墙里放行 OpenVPN 端口与面板的 TCP 80。
+云服务器还需在安全组/防火墙里放行 OpenVPN 端口与面板的 TCP 5698。
 
 ## 快速开始
 
@@ -146,7 +146,7 @@ ovpn-oneclick —— OpenVPN 服务端 + 管理面板 一键安装脚本
 
 ## 装完之后
 
-**面板地址**是 `http://<服务器地址>/ovpnmanager/`（访问根路径会 302 跳到该地址）。用户名 `admin`，初始口令就是安装结束时打印的那一行——它由安装脚本随机生成，写进 `/opt/ovpnmanager/backend/.env` 的 `DEFAULT_ADMIN_PASSWORD`。面板只在管理员账号缺失时才按该值播种，因此这个值同时是"重置口令"的依据。
+**面板地址**是 `http://<服务器地址>:5698/ovpnmanager/`（访问根路径会 302 跳到该地址）。用户名 `admin`，初始口令就是安装结束时打印的那一行——它由安装脚本随机生成，写进 `/opt/ovpnmanager/backend/.env` 的 `DEFAULT_ADMIN_PASSWORD`。面板只在管理员账号缺失时才按该值播种，因此这个值同时是"重置口令"的依据。
 
 **默认只有 VPN 网段能打开面板。** nginx 站点配置里是：
 
@@ -170,7 +170,7 @@ sudo nginx -t && sudo systemctl reload nginx
 
 ## 在面板里改服务端设置
 
-入口是 `http://<服务器地址>/ovpnmanager/settings`，对应接口 `GET` / `PATCH /api/settings/server` 与 `POST /api/settings/reexport-all`，均要求超级管理员。
+入口是 `http://<服务器地址>:5698/ovpnmanager/settings`，对应接口 `GET` / `PATCH /api/settings/server` 与 `POST /api/settings/reexport-all`，均要求超级管理员。
 
 可改项（写入 `server.conf` 托管块）：
 
@@ -255,7 +255,7 @@ sudo bash install.sh --update
 
 ## 常见问题
 
-**面板打不开。** 先确认你是从 VPN 网段访问的——默认只允许 `10.8.44.0/24` 与 `127.0.0.1`，公网直连会被 `deny all` 挡掉；再看云安全组是否放行了 TCP 80。想从别的网段访问，按「装完之后」一节加 `allow` 并 reload nginx。
+**面板打不开。** 先确认你是从 VPN 网段访问的——默认只允许 `10.8.44.0/24` 与 `127.0.0.1`，公网直连会被 `deny all` 挡掉；再看云安全组是否放行了 TCP 5698。想从别的网段访问，按「装完之后」一节加 `allow` 并 reload nginx。
 
 **装依赖很慢或 pip 超时。** 系统包走发行版源，面板依赖默认装自阿里云 PyPI 镜像，失败会自动回退官方源。想换源直接覆盖环境变量：
 
@@ -267,7 +267,7 @@ PIP_INDEX_URL=https://pypi.org/simple/ sudo -E bash install.sh --auto
 
 **改了端口或协议之后客户端连不上。** 这是预期行为：旧 `.ovpn` 里的 `remote` 还是旧端口/协议。到「服务端设置」页面点「重新导出全部客户端」，再把新文件分发出去；同时在安全组里放行新端口。改完记得确认你登面板用的那条连接没有一起断掉。
 
-**想用 TCP 443，仍然连不上。** 本机 443 没有被 nginx 占用（nginx 只监听 80），所以端口冲突一般不在本机。先确认安全组放行的是与 `proto` 一致的协议——`udp` 与 `tcp` 是两条独立规则，部分网络会直接丢弃 UDP 443；TCP 443 更容易穿过只放行常见端口的网络，但 TCP over TCP 在丢包链路上会有明显的吞吐退化，只在确实需要时使用。
+**想用 TCP 443，仍然连不上。** 本机 443 没有被 nginx 占用（nginx 只监听 5698），所以端口冲突一般不在本机。先确认安全组放行的是与 `proto` 一致的协议——`udp` 与 `tcp` 是两条独立规则，部分网络会直接丢弃 UDP 443；TCP 443 更容易穿过只放行常见端口的网络，但 TCP over TCP 在丢包链路上会有明显的吞吐退化，只在确实需要时使用。
 
 **吊销了证书，客户端还能连。** 检查 CRL 权限是否为 `0644`：OpenVPN 是在降权到 `nobody` 之后才重读 CRL 的，文件若是 `0600` 它读不到却也不报错，吊销就静默失效。
 

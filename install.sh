@@ -84,6 +84,12 @@ MGMT_PORT="${MGMT_PORT:-7505}"
 
 PANEL_ENABLE=1
 PANEL_PORT="${PANEL_PORT:-8000}"
+# 对外访问端口（nginx 监听）。默认 5698，**不再是 80**：
+#   - 80 常被同机其它站点占用，且许多云厂商对 80/443 有备案或拦截要求；
+#   - 面板是管理入口，单开一个端口更便于安全组只放行这一条。
+# 内部 uvicorn 仍然只监听 127.0.0.1:${PANEL_PORT}，不对外暴露。
+# 需要改端口时用环境变量覆盖：PANEL_WEB_PORT=8080 bash install.sh --auto
+PANEL_WEB_PORT="${PANEL_WEB_PORT:-5698}"
 PANEL_USER="${PANEL_USER:-ovpnpanel}"
 PANEL_HOME="${PANEL_HOME:-/opt/ovpnmanager}"
 WEB_ROOT="${WEB_ROOT:-/var/www}"
@@ -710,8 +716,8 @@ setup_nat() {
     info "检测到 firewalld，使用 firewalld 配置"
     firewall-cmd --permanent --add-masquerade >/dev/null
     firewall-cmd --permanent --add-port="${VPN_PORT}/${VPN_PROTO}" >/dev/null
-    firewall-cmd --permanent --add-port="${PANEL_PORT}/tcp" >/dev/null 2>&1 || true
-    firewall-cmd --permanent --add-service=http >/dev/null 2>&1 || true
+    firewall-cmd --permanent --add-port="${PANEL_WEB_PORT}/tcp" >/dev/null 2>&1 || true
+    firewall-cmd --permanent --remove-service=http >/dev/null 2>&1 || true
     firewall-cmd --reload >/dev/null
     ok "firewalld：已开启 masquerade 并放行 ${VPN_PORT}/${VPN_PROTO}"
   else
@@ -1063,7 +1069,7 @@ deploy_panel() {
     install -m 0600 "$env_rendered" "${PANEL_HOME}/backend/.env"
     printf '\n'
     printf "${C_WARN}================= 请立即保存面板登录信息 =================${C_RESET}\n"
-    printf "  面板地址 : http://<服务器地址>/%s/\n" "$WEB_NAME"
+    printf "  面板地址 : http://<服务器地址>:%s/%s/\n" "$PANEL_WEB_PORT" "$WEB_NAME"
     printf "  用户名   : admin\n"
     printf "  初始口令 : %s\n" "$admin_pw"
     printf "${C_WARN}=========================================================${C_RESET}\n\n"
@@ -1098,7 +1104,7 @@ deploy_panel() {
   local conf="/etc/nginx/conf.d/ovpnmanager.conf"
   [ -d /etc/nginx/sites-available ] && conf="/etc/nginx/sites-available/ovpnmanager.conf"
   render "${TPL_DIR}/nginx.conf" "$conf" \
-    PANEL_PORT "$PANEL_PORT" WEB_ROOT "$WEB_ROOT" WEB_NAME "$WEB_NAME" \
+    PANEL_PORT "$PANEL_PORT" PANEL_WEB_PORT "$PANEL_WEB_PORT" WEB_ROOT "$WEB_ROOT" WEB_NAME "$WEB_NAME" \
     VPN_NETWORK "$VPN_NETWORK" VPN_CIDR "$VPN_CIDR"
   if [ "$conf" = "/etc/nginx/sites-available/ovpnmanager.conf" ]; then
     ln -sfn "$conf" /etc/nginx/sites-enabled/ovpnmanager.conf
@@ -1138,7 +1144,7 @@ self_check() {
     else
       printf '  %-30s %s\n' "面板就绪探针" "FAILED"; fail=1
     fi
-    if curl -fsS --max-time 10 -o /dev/null "http://127.0.0.1/${WEB_NAME}/"; then
+    if curl -fsS --max-time 10 -o /dev/null "http://127.0.0.1:${PANEL_WEB_PORT}/${WEB_NAME}/"; then
       printf '  %-30s %s\n' "前端页面（经 nginx）" "OK"
     else
       printf '  %-30s %s\n' "前端页面（经 nginx）" "FAILED"; fail=1
@@ -1157,7 +1163,7 @@ print_summary() {
   printf "  OpenVPN : %s://%s:%s  （服务：%s）\n" "$VPN_PROTO" "$ip" "$VPN_PORT" "$OVPN_SERVICE"
   printf "  客户端配置：%s/%s.ovpn\n" "$CLIENT_EXPORT_DIR" "$CLIENT_NAME"
   if [ "$PANEL_ENABLE" = "1" ]; then
-    printf "  面板     : http://%s/%s/\n" "$ip" "$WEB_NAME"
+    printf "  面板     : http://%s:%s/%s/\n" "$ip" "$PANEL_WEB_PORT" "$WEB_NAME"
     printf "             面板默认仅允许 VPN 网段访问（%s/%s）\n" "$VPN_NETWORK" "$VPN_CIDR"
   fi
   printf "${C_OK}=================================================${C_RESET}\n"
@@ -1467,6 +1473,7 @@ save_state() {
     echo "FULL_TUNNEL=\"${FULL_TUNNEL}\""
     echo "PANEL_ENABLE=\"${PANEL_ENABLE}\""
     echo "PANEL_PORT=\"${PANEL_PORT}\""
+  echo "PANEL_WEB_PORT=\"${PANEL_WEB_PORT}\""
     echo "PANEL_HOME=\"${PANEL_HOME}\""
     echo "WEB_NAME=\"${WEB_NAME}\""
     echo "WEB_ROOT=\"${WEB_ROOT}\""

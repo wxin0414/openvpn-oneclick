@@ -25,8 +25,15 @@ OVPN_SERVICE="${OVPN_SERVICE:-openvpn@server}"
 SERVER_CONF="${SERVER_CONF:-/etc/openvpn/server.conf}"
 PANEL_SERVICE="${PANEL_SERVICE:-ovpnmanager}"
 WEB_NAME="${WEB_NAME:-ovpnmanager}"
+# 对外端口默认 5698（见 install.sh 的 PANEL_WEB_PORT）；内部 uvicorn 是 PANEL_PORT
+PANEL_WEB_PORT="${PANEL_WEB_PORT:-5698}"
+WEB_ROOT="${WEB_ROOT:-/var/www}"
 BASE="http://127.0.0.1:${PANEL_PORT}"
-WEB="http://127.0.0.1"
+WEB="http://127.0.0.1:${PANEL_WEB_PORT}"
+# 注意：WEB 是 URL，WEB_DIR 才是文件系统路径。
+# 早期版本把两者混用（${WEB}/ovpnmanager/assets），于是产物级检查永远命中不到、
+# 一直显示"未找到前端产物"被跳过——那几项 SKIP 就是这个 bug 造成的。
+WEB_DIR="${WEB_ROOT}/${WEB_NAME}"
 
 pass=0; fail=0; skip=0
 ok()   { printf '  \033[1;32m[PASS]\033[0m %s\n' "$*"; pass=$((pass+1)); }
@@ -113,7 +120,7 @@ else
 fi
 
 # 前端构建产物里不应该还有裸的 "/servers" 或 "/clients"
-asset="$(ls -1 "${WEB}/ovpnmanager/assets"/index-*.js 2>/dev/null | head -1 || true)"
+asset="$(ls -1 "${WEB_DIR}/assets"/index-*.js 2>/dev/null | head -1 || true)"
 if [ -n "$asset" ]; then
   if grep -q '"/servers/"' "$asset" && grep -q '"/clients/"' "$asset"; then
     ok "前端产物使用带斜杠的列表地址（消除 307）"
@@ -137,12 +144,12 @@ if [ "$enc" = "gzip" ]; then ok "nginx 已对前端开启 gzip"; else info "首�
 
 # --------------------------------------------------------------------------- #
 head_ "5. 修复(11)：前端产物体积"
-if [ -d "${WEB}/ovpnmanager/assets" ]; then
-  total="$(du -sb "${WEB}/ovpnmanager" | cut -f1)"
+if [ -d "${WEB_DIR}/assets" ]; then
+  total="$(du -sb "${WEB_DIR}" | cut -f1)"
   printf '       产物总大小：%s 字节（修复前约 1,439,385）\n' "$total"
   if [ "$total" -lt 1200000 ]; then ok "产物已瘦身"; else bad "产物仍偏大：$total 字节"; fi
 else
-  info "未找到 ${WEB}/ovpnmanager/assets"
+  info "未找到 ${WEB_DIR}/assets"
 fi
 
 # --------------------------------------------------------------------------- #
