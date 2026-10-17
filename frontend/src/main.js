@@ -2,7 +2,12 @@ import { createApp } from "vue";
 
 import App from "./App.vue";
 import router from "./router";
+// Order matters: base.css resets the document, theme.css layers the design
+// tokens on top of it and overrides Element Plus' default palette. Both are
+// imported after App/router, so their rules land after the per-component
+// Element Plus stylesheets and win on import order.
 import "./assets/base.css";
+import "./styles/theme.css";
 
 // Element Plus is loaded on demand by unplugin-auto-import /
 // unplugin-vue-components (see vite.config.js):

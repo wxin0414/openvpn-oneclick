@@ -1,0 +1,502 @@
+/* ==========================================================================
+   Design system for the OpenVPN Web admin panel.
+
+   Loaded from main.js *after* assets/base.css, and therefore after the Element
+   Plus per-component stylesheets that the on-demand resolvers pull in with the
+   components themselves. Because these blocks land later in the emitted CSS
+   bundle, equal-specificity `:root` / class overrides below win on import
+   order alone - no !important is needed anywhere in this file.
+   ========================================================================== */
+
+:root {
+  /* Brand - one steady indigo, used for every primary affordance. */
+  --brand-50: #eceef8;
+  --brand-100: #d9dcf0;
+  --brand-400: #7985cb;
+  --brand-500: #3f51b5;
+  --brand-700: #303f9f;
+  --brand-900: #1a237e;
+
+  /* Semantic colours. The *-soft variants back the light tints and dots. */
+  --success: #16a34a;
+  --success-soft: #e8f6ed;
+  --warning: #d97706;
+  --warning-soft: #fbf1e6;
+  --danger: #dc2626;
+  --danger-soft: #fce9e9;
+  --info: #64748b;
+  --info-soft: #f0f1f3;
+
+  /* Surfaces, borders and text. */
+  --surface: #ffffff;
+  --surface-2: #f6f7fb;
+  --border: #e3e7f0;
+  --border-strong: #cfd6e4;
+  --text: #1a2033;
+  --text-muted: #66708a;
+  --text-subtle: #98a2b8;
+
+  /* Application chrome (sidebar / top bar). */
+  --sidebar-bg: #1c2450;
+  --sidebar-bg-deep: #141a3a;
+  --sidebar-text: #b9c0dd;
+
+  /* Layout metrics. */
+  --sidebar-w: 220px;
+  --sidebar-w-rail: 64px;
+  --header-h: 60px;
+  --header-h-sm: 56px;
+
+  /* Radius, elevation, motion. */
+  --radius: 10px;
+  --radius-sm: 8px;
+  --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.05), 0 1px 3px rgba(16, 24, 40, 0.04);
+  --transition: 150ms ease;
+
+  /* Spacing scale: 4 / 8 / 12 / 16 / 20 / 24. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+
+  /* Type scale: 12 / 13 / 14 / 16 / 20 / 24. */
+  --fs-12: 12px;
+  --fs-13: 13px;
+  --fs-14: 14px;
+  --fs-16: 16px;
+  --fs-20: 20px;
+  --fs-24: 24px;
+  --lh: 1.5;
+}
+
+/* --------------------------------------------------------------------------
+   Element Plus theme mapping.
+   Element Plus derives every hover/pressed tint from `*-light-3` .. `*-light-9`
+   and `*-dark-2`, so the full scale has to be supplied - setting only
+   `--el-color-primary` would leave EP's default blue tints on hover. The hex
+   values below are white/black mixes of the tokens above (same formula EP
+   itself uses), computed for brand #3f51b5, success #16a34a, warning #d97706,
+   danger #dc2626 and info #64748b.
+   -------------------------------------------------------------------------- */
+:root {
+  --el-color-primary: var(--brand-500);
+  --el-color-primary-rgb: 63, 81, 181;
+  --el-color-primary-light-3: #7985cb;
+  --el-color-primary-light-5: #9fa8da;
+  --el-color-primary-light-7: #c5cbe9;
+  --el-color-primary-light-8: #d9dcf0;
+  --el-color-primary-light-9: #eceef8;
+  --el-color-primary-dark-2: #324191;
+
+  --el-color-success: var(--success);
+  --el-color-success-rgb: 22, 163, 74;
+  --el-color-success-light-3: #5cbf80;
+  --el-color-success-light-5: #8bd1a5;
+  --el-color-success-light-7: #b9e3c9;
+  --el-color-success-light-8: #d0eddb;
+  --el-color-success-light-9: #e8f6ed;
+  --el-color-success-dark-2: #12823b;
+
+  --el-color-warning: var(--warning);
+  --el-color-warning-rgb: 217, 119, 6;
+  --el-color-warning-light-3: #e4a051;
+  --el-color-warning-light-5: #ecbb83;
+  --el-color-warning-light-7: #f4d6b4;
+  --el-color-warning-light-8: #f7e4cd;
+  --el-color-warning-light-9: #fbf1e6;
+  --el-color-warning-dark-2: #ae5f05;
+
+  --el-color-danger: var(--danger);
+  --el-color-danger-rgb: 220, 38, 38;
+  --el-color-danger-light-3: #e76767;
+  --el-color-danger-light-5: #ee9393;
+  --el-color-danger-light-7: #f5bebe;
+  --el-color-danger-light-8: #f8d4d4;
+  --el-color-danger-light-9: #fce9e9;
+  --el-color-danger-dark-2: #b01e1e;
+
+  --el-color-error: var(--danger);
+  --el-color-error-rgb: 220, 38, 38;
+  --el-color-error-light-3: #e76767;
+  --el-color-error-light-5: #ee9393;
+  --el-color-error-light-7: #f5bebe;
+  --el-color-error-light-8: #f8d4d4;
+  --el-color-error-light-9: #fce9e9;
+  --el-color-error-dark-2: #b01e1e;
+
+  --el-color-info: var(--info);
+  --el-color-info-rgb: 100, 116, 139;
+  --el-color-info-light-3: #939eae;
+  --el-color-info-light-5: #b2bac5;
+  --el-color-info-light-7: #d1d5dc;
+  --el-color-info-light-8: #e0e3e8;
+  --el-color-info-light-9: #f0f1f3;
+  --el-color-info-dark-2: #505d6f;
+
+  --el-text-color-primary: var(--text);
+  --el-text-color-regular: #3a4358;
+  --el-text-color-secondary: var(--text-muted);
+  --el-text-color-placeholder: var(--text-subtle);
+  --el-border-color: var(--border-strong);
+  --el-border-color-light: var(--border);
+  --el-border-color-lighter: var(--border);
+  --el-border-color-extra-light: var(--border);
+  --el-fill-color-light: var(--surface-2);
+  --el-fill-color-blank: var(--surface);
+  --el-bg-color: var(--surface);
+  --el-bg-color-page: var(--surface-2);
+  --el-border-radius-base: 8px;
+  --el-border-radius-small: 6px;
+  --el-box-shadow-light: var(--shadow-card);
+  --el-font-size-base: 14px;
+  --el-font-family: inherit;
+}
+
+/* --------------------------------------------------------------------------
+   Page primitives.
+   `.page` is the root of every view: a vertical stack with the shared rhythm.
+   Row spacing comes from the gap, so views never manage their own margins.
+   -------------------------------------------------------------------------- */
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.page-header__text {
+  min-width: 0;
+}
+
+.page-header__title {
+  margin: 0;
+  font-size: var(--fs-20);
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.page-header__subtitle {
+  margin-top: var(--space-1);
+  font-size: var(--fs-13);
+  line-height: var(--lh);
+  color: var(--text-muted);
+  word-break: break-word;
+}
+
+.page-header__actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* Element Plus spaces adjacent buttons with a margin; the flex gap above
+   already provides that distance. */
+.page-header__actions .el-button + .el-button {
+  margin-left: 0;
+}
+
+/* --------------------------------------------------------------------------
+   Cards.
+   -------------------------------------------------------------------------- */
+.stat-card,
+.section-card {
+  padding: var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+  min-width: 0;
+}
+
+.stat-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.stat-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.stat-card__title {
+  font-size: var(--fs-13);
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.stat-card__value {
+  font-size: var(--fs-24);
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--text);
+  word-break: break-word;
+}
+
+.stat-card__desc {
+  font-size: var(--fs-12);
+  line-height: var(--lh);
+  color: var(--text-subtle);
+  word-break: break-word;
+}
+
+.section-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-4);
+}
+
+.section-card__title {
+  font-size: var(--fs-16);
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* --------------------------------------------------------------------------
+   Toolbars and filters.
+   -------------------------------------------------------------------------- */
+.filter-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.filter-bar .el-button + .el-button {
+  margin-left: 0;
+}
+
+.filter-field {
+  width: 200px;
+}
+
+.filter-field--sm {
+  width: 140px;
+}
+
+.filter-field--wide {
+  width: 100%;
+  max-width: 380px;
+}
+
+/* Spans the full filter grid on phones; inert inside the desktop flex row. */
+.filter-field--span {
+  grid-column: 1 / -1;
+}
+
+/* --------------------------------------------------------------------------
+   Mobile card list - used instead of a horizontally scrolling table.
+   -------------------------------------------------------------------------- */
+.mobile-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.mobile-item {
+  padding: var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.mobile-item__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.mobile-item__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: var(--fs-14);
+  font-weight: 600;
+  color: var(--text);
+  word-break: break-word;
+}
+
+.mobile-item__meta {
+  display: grid;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
+
+.mobile-item__meta > div {
+  display: flex;
+  gap: var(--space-2);
+  font-size: var(--fs-13);
+  line-height: var(--lh);
+}
+
+.mobile-item__meta dt {
+  flex: 0 0 68px;
+  color: var(--text-muted);
+}
+
+.mobile-item__meta dd {
+  margin: 0;
+  min-width: 0;
+  color: var(--text);
+  word-break: break-word;
+}
+
+/* --------------------------------------------------------------------------
+   Small shared pieces.
+   -------------------------------------------------------------------------- */
+.status-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-subtle);
+}
+
+.status-dot.is-online {
+  background: var(--success);
+  box-shadow: 0 0 0 3px var(--success-soft);
+}
+
+.status-dot.is-offline {
+  background: var(--info);
+  box-shadow: 0 0 0 3px var(--info-soft);
+}
+
+.status-dot.is-disabled {
+  background: var(--danger);
+  box-shadow: 0 0 0 3px var(--danger-soft);
+}
+
+.field-tip {
+  width: 100%;
+  margin-top: var(--space-1);
+  font-size: var(--fs-12);
+  line-height: 1.4;
+  color: var(--text-subtle);
+}
+
+.field-tip.ok {
+  color: var(--success);
+}
+
+.field-tip.err {
+  color: var(--danger);
+}
+
+/* 40px square hit area for icon-only controls (hamburger, drawer close,
+   sidebar logout). Every one of them also carries an aria-label. */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition),
+    border-color var(--transition);
+}
+
+.icon-btn:hover {
+  background: var(--surface-2);
+}
+
+.icon-btn:focus-visible {
+  outline: 2px solid var(--brand-500);
+  outline-offset: 2px;
+}
+
+/* --------------------------------------------------------------------------
+   Breakpoints.
+   mobile < 768px  |  tablet 768-1199px  |  desktop >= 1200px
+   -------------------------------------------------------------------------- */
+@media (min-width: 1200px) {
+  .stat-card,
+  .section-card {
+    padding: var(--space-5);
+  }
+}
+
+/* el-drawer teleports its DOM to <body>, so its internal padding can only be
+   reset from a global stylesheet. The mobile sidebar paints its own surface. */
+.app-drawer .el-drawer__body {
+  padding: 0;
+  overflow: hidden;
+}
+
+@media (max-width: 767.98px) {
+  /* Element Plus sizes every control from these three variables, so bumping
+     them here scales buttons, inputs and selects together for touch use. */
+  :root {
+    --el-component-size: 40px;
+    --el-component-size-small: 32px;
+    --el-component-size-large: 44px;
+  }
+
+  .page-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .page-header__actions {
+    width: 100%;
+  }
+
+  .page-header__actions .el-button {
+    flex: 1 1 auto;
+  }
+
+  /* A lone action (e.g. the settings page reload) stays compact. */
+  .page-header__actions .el-button:only-child {
+    flex: 0 0 auto;
+  }
+
+  /* Two-column filter grid instead of one long wrapped row. */
+  .filter-bar {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    align-items: center;
+  }
+
+  .filter-bar .filter-field,
+  .filter-bar .filter-field--sm,
+  .filter-bar .filter-field--wide {
+    width: 100%;
+    max-width: none;
+  }
+
+  .filter-bar .filter-field--wide {
+    grid-column: 1 / -1;
+  }
+
+  .section-card__head {
+    align-items: flex-start;
+  }
+}

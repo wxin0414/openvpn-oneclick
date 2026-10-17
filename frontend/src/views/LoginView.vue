@@ -1,6 +1,11 @@
 <template>
   <div class="login-card">
-    <div class="logo">OpenVPN Web 管理</div>
+    <div class="logo">
+      <span class="login-mark">
+        <el-icon><i class="ri-shield-keyhole-line"></i></el-icon>
+      </span>
+      <span>OpenVPN Web 管理</span>
+    </div>
     <el-form :model="form" @keyup.enter="submit" label-position="top">
       <el-form-item label="用户名">
         <el-input v-model="form.username" autocomplete="username" />
@@ -10,7 +15,6 @@
       </el-form-item>
       <el-button type="primary" :loading="loading" class="full-btn" @click="submit">登录</el-button>
     </el-form>
-    
   </div>
 </template>
 
@@ -59,30 +63,50 @@ const submit = async () => {
 
 <style scoped>
 .login-card {
-  width: 360px;
-  padding: 28px;
+  width: 100%;
+  max-width: 420px;
+  padding: 32px 28px;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.06);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  color: #e2e8f0;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 24px 60px rgba(9, 14, 40, 0.32);
 }
+
 .logo {
-  font-size: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-6);
+  color: var(--text);
+  font-size: var(--fs-20);
   font-weight: 700;
-  margin-bottom: 16px;
-  text-align: center;
-  color: #fff;
 }
+
+.login-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: var(--brand-500);
+  color: #fff;
+  font-size: 17px;
+}
+
 .full-btn {
   width: 100%;
-  margin-top: 8px;
+  margin-top: var(--space-2);
 }
-.hint {
-  color: #cbd5e1;
-  font-size: 12px;
-  margin-top: 12px;
-  text-align: center;
+
+@media (max-width: 767.98px) {
+  .login-card {
+    padding: 24px 20px;
+  }
+
+  .logo {
+    font-size: var(--fs-16);
+  }
 }
 </style>

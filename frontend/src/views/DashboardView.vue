@@ -1,71 +1,69 @@
 <template>
   <div class="page">
-    <el-row :gutter="16" class="cards" v-loading="loading">
-      <el-col :span="6" v-for="card in cards" :key="card.title">
-        <el-card shadow="hover" class="stat-card">
-          <div class="card-header">
-            <div class="title">{{ card.title }}</div>
-            <el-tag :type="card.tagType" effect="dark" size="small">{{ card.tag }}</el-tag>
-          </div>
-          <div class="value">{{ card.value }}</div>
-          <div class="desc">{{ card.desc }}</div>
-        </el-card>
-      </el-col>
-    </el-row>
+    <div class="page-header">
+      <div class="page-header__text">
+        <h1 class="page-header__title">仪表盘</h1>
+        <p class="page-header__subtitle">服务端运行状态、连接事件与近期审计活动</p>
+      </div>
+      <div class="page-header__actions">
+        <el-button size="small" type="primary" @click="fetchMetrics" :loading="loading">刷新</el-button>
+      </div>
+    </div>
 
-
-    <el-row :gutter="16" class="cards">
-      <el-col :span="12">
-        <el-card shadow="never" class="panel full-height">
-          <template #header>
-            <div class="panel-header">
-              <span>OpenVPN 概览</span>
-            </div>
-          </template>
-          <el-descriptions :column="1" border size="small">
-            <el-descriptions-item label="版本/标题">{{ openvpn.title || "未知" }}</el-descriptions-item>
-            <el-descriptions-item label="累计流量">
-              入 {{ formatBytes(totalBytesIn) }} / 出 {{ formatBytes(totalBytesOut) }}
-            </el-descriptions-item>
-          </el-descriptions>
-        </el-card>
-      </el-col>
-      <el-col :span="12">
-        <el-card shadow="never" class="panel full-height">
-          <template #header>
-            <div class="panel-header">
-              <span>最近连接事件</span>
-            </div>
-          </template>
-          <div v-if="stateEvents.length">
-            <el-timeline>
-              <el-timeline-item
-                v-for="(item, idx) in stateEvents"
-                :key="idx"
-                :timestamp="formatTimeZh(item.timestamp * 1000)"
-                :type="item.state === 'CONNECTED' ? 'success' : 'info'"
-              >
-                <div class="activity-line">
-                  <span class="actor">{{ item.common_name || "N/A" }}</span>
-                  <span class="action">{{ item.state }}</span>
-                  <span class="target" v-if="item.real_address">({{ item.real_address }})</span>
-                  <div class="action" v-if="item.detail">{{ item.detail }}</div>
-                </div>
-              </el-timeline-item>
-            </el-timeline>
-          </div>
-          <el-empty v-else description="暂无连接事件" />
-        </el-card>
-      </el-col>
-    </el-row>
-
-    <el-card shadow="never" class="panel">
-      <template #header>
-        <div class="panel-header">
-          <span>路由表</span>
+    <section class="stat-grid" v-loading="loading">
+      <article v-for="card in cards" :key="card.title" class="stat-card">
+        <div class="stat-card__head">
+          <span class="stat-card__title">{{ card.title }}</span>
+          <el-tag :type="card.tagType" effect="light" size="small" round>{{ card.tag }}</el-tag>
         </div>
-      </template>
-      <el-table :data="routingTable" size="small" v-loading="loading" empty-text="暂无路由">
+        <div class="stat-card__value">{{ card.value }}</div>
+        <p class="stat-card__desc">{{ card.desc }}</p>
+      </article>
+    </section>
+
+    <div class="dashboard-grid">
+      <section class="section-card">
+        <div class="section-card__head">
+          <h2 class="section-card__title">OpenVPN 概览</h2>
+        </div>
+        <el-descriptions :column="1" border size="small">
+          <el-descriptions-item label="版本/标题">{{ openvpn.title || "未知" }}</el-descriptions-item>
+          <el-descriptions-item label="累计流量">
+            入 {{ formatBytes(totalBytesIn) }} / 出 {{ formatBytes(totalBytesOut) }}
+          </el-descriptions-item>
+        </el-descriptions>
+      </section>
+
+      <section class="section-card">
+        <div class="section-card__head">
+          <h2 class="section-card__title">最近连接事件</h2>
+        </div>
+        <div v-if="stateEvents.length">
+          <el-timeline>
+            <el-timeline-item
+              v-for="(item, idx) in stateEvents"
+              :key="idx"
+              :timestamp="formatTimeZh(item.timestamp * 1000)"
+              :type="item.state === 'CONNECTED' ? 'success' : 'info'"
+            >
+              <div class="activity-line">
+                <span class="actor">{{ item.common_name || "N/A" }}</span>
+                <span class="action">{{ item.state }}</span>
+                <span class="target" v-if="item.real_address">({{ item.real_address }})</span>
+                <div class="action" v-if="item.detail">{{ item.detail }}</div>
+              </div>
+            </el-timeline-item>
+          </el-timeline>
+        </div>
+        <el-empty v-else description="暂无连接事件" />
+      </section>
+    </div>
+
+    <section class="section-card">
+      <div class="section-card__head">
+        <h2 class="section-card__title">路由表</h2>
+      </div>
+      <el-table v-if="!isMobile" :data="routingTable" size="small" v-loading="loading" empty-text="暂无路由">
         <el-table-column prop="virtual_address" label="虚拟地址" />
         <el-table-column prop="real_address" label="公网地址" />
         <el-table-column prop="common_name" label="客户端" />
@@ -75,14 +73,31 @@
           </template>
         </el-table-column>
       </el-table>
-    </el-card>
-        <el-card shadow="never" class="panel">
-      <template #header>
-        <div class="panel-header">
-          <span>近期活动</span>
-          <el-button size="small" text type="primary" @click="fetchMetrics" :loading="loading">刷新</el-button>
-        </div>
-      </template>
+      <div v-else class="mobile-list" v-loading="loading">
+        <article v-for="(row, idx) in routingTable" :key="idx" class="mobile-item">
+          <div class="mobile-item__head">
+            <span class="mobile-item__title">{{ row.virtual_address || "-" }}</span>
+            <el-tag size="small" type="info" effect="light">{{ row.common_name || "N/A" }}</el-tag>
+          </div>
+          <dl class="mobile-item__meta">
+            <div>
+              <dt>公网地址</dt>
+              <dd>{{ row.real_address || "-" }}</dd>
+            </div>
+            <div>
+              <dt>最近活动</dt>
+              <dd>{{ formatTimeZh(row.last_ref * 1000) }}</dd>
+            </div>
+          </dl>
+        </article>
+        <el-empty v-if="!routingTable.length && !loading" description="暂无路由" />
+      </div>
+    </section>
+
+    <section class="section-card">
+      <div class="section-card__head">
+        <h2 class="section-card__title">近期活动</h2>
+      </div>
       <div v-if="recentActivity.length">
         <el-timeline>
           <el-timeline-item
@@ -103,7 +118,7 @@
         </el-timeline>
       </div>
       <el-empty v-else description="暂无活动记录" />
-    </el-card>
+    </section>
   </div>
 </template>
 
@@ -112,6 +127,9 @@ import { computed, onMounted, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { getDashboardMetrics } from "../api/dashboard";
 import { formatTimeZh } from "../utils/time";
+import { useBreakpoint } from "../composables/useBreakpoint";
+
+const { isMobile } = useBreakpoint();
 
 const loading = ref(false);
 const metrics = ref({
@@ -238,45 +256,32 @@ onMounted(fetchMetrics);
 </script>
 
 <style scoped>
-.page {
-  padding: 12px;
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-4);
 }
-.cards {
-  margin-bottom: 16px;
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
 }
-.stat-card {
-  min-height: 140px;
-}
-.card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 6px;
-}
-.title {
-  font-weight: 600;
-}
-.value {
-  font-size: 28px;
-  font-weight: 700;
-  margin: 4px 0;
-}
-.desc {
-  color: #94a3b8;
-  font-size: 13px;
-}
-.panel {
-  margin-top: 8px;
-}
-.panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
+
 .activity-line {
   display: flex;
   align-items: center;
   gap: 2px;
   flex-wrap: wrap;
+}
+
+.activity-line .spaced {
+  margin-right: 4px;
+}
+
+@media (max-width: 767.98px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

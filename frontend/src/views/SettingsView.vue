@@ -1,26 +1,28 @@
 <template>
   <div class="page" v-loading="loading">
-    <div class="toolbar">
-      <div class="path">
-        <span class="label">配置文件</span>
-        <code>{{ configPath || "-" }}</code>
+    <div class="page-header">
+      <div class="page-header__text">
+        <h1 class="page-header__title">服务端设置</h1>
+        <p class="page-header__subtitle">
+          <span class="path-label">配置文件</span>
+          <code>{{ configPath || "-" }}</code>
+        </p>
       </div>
-      <div class="actions">
+      <div class="page-header__actions">
         <el-button :loading="loading" :disabled="loading" @click="reload(true)">重新加载</el-button>
-        <el-button type="primary" :loading="saving" :disabled="saving || loading" @click="handleSave">
+        <el-button
+          v-if="!isMobile"
+          type="primary"
+          :loading="saving"
+          :disabled="saving || loading"
+          @click="handleSave"
+        >
           保存并应用
         </el-button>
       </div>
     </div>
 
-    <el-alert
-      v-if="loaded && !exists"
-      class="block-alert"
-      type="error"
-      show-icon
-      :closable="false"
-      title="未找到 server.conf"
-    >
+    <el-alert v-if="loaded && !exists" type="error" show-icon :closable="false" title="未找到 server.conf">
       <template #default>
         路径 <code>{{ configPath }}</code> 不存在配置文件，请先通过安装脚本部署 OpenVPN 服务端。
       </template>
@@ -29,7 +31,6 @@
     <!-- 从其他项目迁移过来的 server.conf 没有本安装器写入的受管块 -->
     <el-alert
       v-if="loaded && managedBlockPresent === false"
-      class="block-alert"
       type="warning"
       show-icon
       :closable="false"
@@ -44,7 +45,6 @@
 
     <el-alert
       v-if="loaded && managedBlockPresent === null"
-      class="block-alert"
       type="info"
       show-icon
       :closable="false"
@@ -54,15 +54,13 @@
     </el-alert>
 
     <!-- 最近一次保存结果：把 message / backup / 影响面留在页面上，便于事后核对 -->
-    <el-card v-if="lastApply" shadow="never" class="panel apply-panel">
-      <template #header>
-        <div class="panel-header">
-          <span>最近一次保存结果</span>
-          <el-tag :type="lastApply.ok === false ? 'danger' : 'success'" size="small">
-            {{ lastApply.ok === false ? "失败" : "成功" }}
-          </el-tag>
-        </div>
-      </template>
+    <section v-if="lastApply" class="section-card">
+      <div class="section-card__head">
+        <h2 class="section-card__title">最近一次保存结果</h2>
+        <el-tag :type="lastApply.ok === false ? 'danger' : 'success'" size="small">
+          {{ lastApply.ok === false ? "失败" : "成功" }}
+        </el-tag>
+      </div>
       <div class="apply-line" v-if="lastApply.message">{{ lastApply.message }}</div>
       <div class="apply-line">
         <span class="label">已修改：</span>
@@ -99,194 +97,179 @@
           失败 {{ reexportResult.failed.length }}
         </el-tag>
         <ul v-if="reexportResult.failed.length" class="failed-list">
-          <li v-for="item in reexportResult.failed" :key="item.name">
-            {{ item.name }}：{{ item.error }}
-          </li>
+          <li v-for="item in reexportResult.failed" :key="item.name">{{ item.name }}：{{ item.error }}</li>
         </ul>
       </div>
-    </el-card>
+    </section>
 
-    <el-form :model="form" label-width="150px" :disabled="saving" class="settings-form">
-      <el-row :gutter="16">
-        <el-col :span="12">
-          <el-card shadow="never" class="panel">
-            <template #header>
-              <div class="panel-header"><span>基本</span></div>
-            </template>
-            <el-form-item label="监听端口" required>
-              <el-input-number v-model="form.port" :min="1" :max="65535" :step="1" controls-position="right" />
-              <div v-if="errors.port" class="field-tip err">{{ errors.port }}</div>
-              <div v-else class="field-tip">修改端口后所有已签发的客户端 .ovpn 都会失效。</div>
-            </el-form-item>
-            <el-form-item label="协议" required>
-              <el-select v-model="form.proto" style="width: 220px">
-                <el-option v-for="opt in protoOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
-              </el-select>
-              <div v-if="errors.proto" class="field-tip err">{{ errors.proto }}</div>
-              <div v-else class="field-tip">修改协议后所有已签发的客户端 .ovpn 都会失效。</div>
-            </el-form-item>
-          </el-card>
-        </el-col>
+    <el-form
+      :model="form"
+      :label-width="isMobile ? undefined : '150px'"
+      :label-position="isMobile ? 'top' : 'right'"
+      :disabled="saving"
+      class="settings-form"
+    >
+      <div class="settings-grid">
+        <section class="section-card">
+          <div class="section-card__head">
+            <h2 class="section-card__title">基本</h2>
+          </div>
+          <el-form-item label="监听端口" required>
+            <el-input-number v-model="form.port" :min="1" :max="65535" :step="1" controls-position="right" />
+            <div v-if="errors.port" class="field-tip err">{{ errors.port }}</div>
+            <div v-else class="field-tip">修改端口后所有已签发的客户端 .ovpn 都会失效。</div>
+          </el-form-item>
+          <el-form-item label="协议" required>
+            <el-select v-model="form.proto" class="control-field">
+              <el-option v-for="opt in protoOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
+            </el-select>
+            <div v-if="errors.proto" class="field-tip err">{{ errors.proto }}</div>
+            <div v-else class="field-tip">修改协议后所有已签发的客户端 .ovpn 都会失效。</div>
+          </el-form-item>
+        </section>
 
-        <el-col :span="12">
-          <el-card shadow="never" class="panel">
-            <template #header>
-              <div class="panel-header"><span>隧道与路由</span></div>
-            </template>
-            <el-form-item label="代理模式" required>
-              <el-select v-model="form.tunnel_mode" style="width: 220px">
-                <el-option v-for="opt in tunnelModeOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
-              </el-select>
-              <div class="field-tip">
-                全局代理：客户端所有流量都走 VPN。分流：仅下表列出的目标网段走 VPN。
+        <section class="section-card">
+          <div class="section-card__head">
+            <h2 class="section-card__title">隧道与路由</h2>
+          </div>
+          <el-form-item label="代理模式" required>
+            <el-select v-model="form.tunnel_mode" class="control-field">
+              <el-option v-for="opt in tunnelModeOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
+            </el-select>
+            <div class="field-tip">全局代理：客户端所有流量都走 VPN。分流：仅下表列出的目标网段走 VPN。</div>
+          </el-form-item>
+          <el-form-item label="分流路由">
+            <div class="rows">
+              <div v-for="(_, index) in form.routes" :key="`route-${index}`" class="row-item">
+                <el-input
+                  v-model="form.routes[index]"
+                  class="row-input"
+                  :disabled="form.tunnel_mode !== 'split'"
+                  placeholder="192.168.1.0/24"
+                />
+                <el-button type="danger" text :disabled="form.tunnel_mode !== 'split'" @click="removeRoute(index)">
+                  移除
+                </el-button>
+                <span v-if="errors.routes[index]" class="field-tip err">{{ errors.routes[index] }}</span>
               </div>
-            </el-form-item>
-            <el-form-item label="分流路由">
-              <div class="rows">
-                <div v-for="(_, index) in form.routes" :key="`route-${index}`" class="row-item">
-                  <el-input
-                    v-model="form.routes[index]"
-                    :disabled="form.tunnel_mode !== 'split'"
-                    placeholder="192.168.1.0/24"
-                    style="width: 240px"
-                  />
-                  <el-button
-                    type="danger"
-                    text
-                    :disabled="form.tunnel_mode !== 'split'"
-                    @click="removeRoute(index)"
-                  >
-                    移除
-                  </el-button>
-                  <span v-if="errors.routes[index]" class="field-tip err">{{ errors.routes[index] }}</span>
-                </div>
-                <el-button size="small" :disabled="form.tunnel_mode !== 'split'" @click="addRoute">添加路由</el-button>
+              <el-button size="small" :disabled="form.tunnel_mode !== 'split'" @click="addRoute">添加路由</el-button>
+            </div>
+            <div class="field-tip">
+              {{ form.tunnel_mode === "split" ? "CIDR 格式，如 192.168.1.0/24。" : "仅分流模式可编辑。" }}
+            </div>
+          </el-form-item>
+          <el-form-item label="屏蔽 IPv6">
+            <el-switch v-model="form.block_ipv6" />
+            <div class="field-tip">开启后客户端侧屏蔽 IPv6 流量，避免 IPv6 泄漏绕过隧道。</div>
+          </el-form-item>
+        </section>
+
+        <section class="section-card">
+          <div class="section-card__head">
+            <h2 class="section-card__title">DNS</h2>
+          </div>
+          <el-form-item label="DNS 服务器">
+            <div class="rows">
+              <div v-for="(_, index) in form.dns_servers" :key="`dns-${index}`" class="row-item">
+                <el-input v-model="form.dns_servers[index]" class="row-input" placeholder="8.8.8.8" />
+                <el-button type="danger" text @click="removeDns(index)">移除</el-button>
+                <span v-if="errors.dns[index]" class="field-tip err">{{ errors.dns[index] }}</span>
               </div>
-              <div class="field-tip">
-                {{ form.tunnel_mode === "split" ? "CIDR 格式，如 192.168.1.0/24。" : "仅分流模式可编辑。" }}
-              </div>
-            </el-form-item>
-            <el-form-item label="屏蔽 IPv6">
-              <el-switch v-model="form.block_ipv6" />
-              <div class="field-tip">开启后客户端侧屏蔽 IPv6 流量，避免 IPv6 泄漏绕过隧道。</div>
-            </el-form-item>
-          </el-card>
-        </el-col>
+              <el-button size="small" @click="addDns">添加 DNS</el-button>
+            </div>
+            <div class="field-tip">最多 2 个，推送给客户端用于隧道内解析。</div>
+          </el-form-item>
+        </section>
 
-        <el-col :span="12">
-          <el-card shadow="never" class="panel">
-            <template #header>
-              <div class="panel-header"><span>DNS</span></div>
-            </template>
-            <el-form-item label="DNS 服务器">
-              <div class="rows">
-                <div v-for="(_, index) in form.dns_servers" :key="`dns-${index}`" class="row-item">
-                  <el-input v-model="form.dns_servers[index]" placeholder="8.8.8.8" style="width: 240px" />
-                  <el-button type="danger" text @click="removeDns(index)">移除</el-button>
-                  <span v-if="errors.dns[index]" class="field-tip err">{{ errors.dns[index] }}</span>
-                </div>
-                <el-button size="small" @click="addDns">添加 DNS</el-button>
-              </div>
-              <div class="field-tip">最多 2 个，推送给客户端用于隧道内解析。</div>
-            </el-form-item>
-          </el-card>
-        </el-col>
+        <section class="section-card">
+          <div class="section-card__head">
+            <h2 class="section-card__title">性能</h2>
+          </div>
+          <el-form-item label="MSS 修正 (mssfix)" required>
+            <el-input-number v-model="form.mssfix" :min="0" :max="65535" :step="1" controls-position="right" />
+            <div v-if="errors.mssfix" class="field-tip err">{{ errors.mssfix }}</div>
+            <div v-else class="field-tip">0-65535，用于避免分片，常见值 1420。</div>
+          </el-form-item>
+          <el-form-item label="发送缓冲区 (sndbuf)" required>
+            <el-input-number v-model="form.sndbuf" :min="0" :max="16777216" :step="1024" controls-position="right" />
+            <div v-if="errors.sndbuf" class="field-tip err">{{ errors.sndbuf }}</div>
+            <div v-else class="field-tip">字节，默认 393216。</div>
+          </el-form-item>
+          <el-form-item label="接收缓冲区 (rcvbuf)" required>
+            <el-input-number v-model="form.rcvbuf" :min="0" :max="16777216" :step="1024" controls-position="right" />
+            <div v-if="errors.rcvbuf" class="field-tip err">{{ errors.rcvbuf }}</div>
+            <div v-else class="field-tip">字节，默认 393216。</div>
+          </el-form-item>
+          <el-form-item label="keepalive" required>
+            <el-input v-model="form.keepalive" class="control-field" placeholder="10 120" />
+            <div v-if="errors.keepalive" class="field-tip err">{{ errors.keepalive }}</div>
+            <div v-else class="field-tip">两个整数（间隔 超时），如 “10 120”。</div>
+          </el-form-item>
+        </section>
 
-        <el-col :span="12">
-          <el-card shadow="never" class="panel">
-            <template #header>
-              <div class="panel-header"><span>性能</span></div>
-            </template>
-            <el-form-item label="MSS 修正 (mssfix)" required>
-              <el-input-number v-model="form.mssfix" :min="0" :max="65535" :step="1" controls-position="right" />
-              <div v-if="errors.mssfix" class="field-tip err">{{ errors.mssfix }}</div>
-              <div v-else class="field-tip">0-65535，用于避免分片，常见值 1420。</div>
-            </el-form-item>
-            <el-form-item label="发送缓冲区 (sndbuf)" required>
-              <el-input-number v-model="form.sndbuf" :min="0" :max="16777216" :step="1024" controls-position="right" />
-              <div v-if="errors.sndbuf" class="field-tip err">{{ errors.sndbuf }}</div>
-              <div v-else class="field-tip">字节，默认 393216。</div>
-            </el-form-item>
-            <el-form-item label="接收缓冲区 (rcvbuf)" required>
-              <el-input-number v-model="form.rcvbuf" :min="0" :max="16777216" :step="1024" controls-position="right" />
-              <div v-if="errors.rcvbuf" class="field-tip err">{{ errors.rcvbuf }}</div>
-              <div v-else class="field-tip">字节，默认 393216。</div>
-            </el-form-item>
-            <el-form-item label="keepalive" required>
-              <el-input v-model="form.keepalive" placeholder="10 120" style="width: 220px" />
-              <div v-if="errors.keepalive" class="field-tip err">{{ errors.keepalive }}</div>
-              <div v-else class="field-tip">两个整数（间隔 超时），如 “10 120”。</div>
-            </el-form-item>
-          </el-card>
-        </el-col>
+        <section class="section-card">
+          <div class="section-card__head">
+            <h2 class="section-card__title">客户端</h2>
+          </div>
+          <el-form-item label="客户端互访">
+            <el-switch v-model="form.client_to_client" />
+            <div class="field-tip">开启后同一 VPN 内的客户端可以互相访问。</div>
+          </el-form-item>
+          <el-form-item label="限制最大连接数">
+            <el-switch v-model="limitMaxClients" />
+            <el-input-number
+              v-if="limitMaxClients"
+              v-model="form.max_clients"
+              :min="1"
+              :max="65535"
+              :step="1"
+              controls-position="right"
+              class="inline-number"
+            />
+            <div v-if="errors.max_clients" class="field-tip err">{{ errors.max_clients }}</div>
+            <div v-else class="field-tip">关闭时不下发 max-clients（不限制）。</div>
+          </el-form-item>
+          <el-form-item label="允许同名 CN">
+            <el-switch v-model="form.duplicate_cn" />
+            <div class="field-tip">开启后允许同一证书 CN 多设备同时连接，建议保持关闭。</div>
+          </el-form-item>
+        </section>
 
-        <el-col :span="12">
-          <el-card shadow="never" class="panel">
-            <template #header>
-              <div class="panel-header"><span>客户端</span></div>
+        <section class="section-card">
+          <div class="section-card__head">
+            <h2 class="section-card__title">网段</h2>
+          </div>
+          <el-form-item label="VPN 网段" required>
+            <el-input v-model="form.network" class="control-field" placeholder="10.8.44.0" />
+            <div v-if="errors.network" class="field-tip err">{{ errors.network }}</div>
+          </el-form-item>
+          <el-form-item label="子网掩码" required>
+            <el-input v-model="form.netmask" class="control-field" placeholder="255.255.255.0" />
+            <div v-if="errors.netmask" class="field-tip err">{{ errors.netmask }}</div>
+          </el-form-item>
+          <el-form-item label="拓扑 (topology)" required>
+            <el-select v-model="form.topology" class="control-field">
+              <el-option v-for="opt in topologyOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
+            </el-select>
+          </el-form-item>
+          <el-alert type="warning" show-icon :closable="false" class="net-warning">
+            <template #default>
+              修改网段或掩码会重建 NAT 规则与面板自身的 nginx 放行规则，并重启 OpenVPN 服务；
+              已有客户端的固定 IP 可能需要同步调整。
             </template>
-            <el-form-item label="客户端互访">
-              <el-switch v-model="form.client_to_client" />
-              <div class="field-tip">开启后同一 VPN 内的客户端可以互相访问。</div>
-            </el-form-item>
-            <el-form-item label="限制最大连接数">
-              <el-switch v-model="limitMaxClients" />
-              <el-input-number
-                v-if="limitMaxClients"
-                v-model="form.max_clients"
-                :min="1"
-                :max="65535"
-                :step="1"
-                controls-position="right"
-                class="inline-number"
-              />
-              <div v-if="errors.max_clients" class="field-tip err">{{ errors.max_clients }}</div>
-              <div v-else class="field-tip">关闭时不下发 max-clients（不限制）。</div>
-            </el-form-item>
-            <el-form-item label="允许同名 CN">
-              <el-switch v-model="form.duplicate_cn" />
-              <div class="field-tip">开启后允许同一证书 CN 多设备同时连接，建议保持关闭。</div>
-            </el-form-item>
-          </el-card>
-        </el-col>
-
-        <el-col :span="12">
-          <el-card shadow="never" class="panel">
-            <template #header>
-              <div class="panel-header"><span>网段</span></div>
-            </template>
-            <el-form-item label="VPN 网段" required>
-              <el-input v-model="form.network" placeholder="10.8.44.0" style="width: 220px" />
-              <div v-if="errors.network" class="field-tip err">{{ errors.network }}</div>
-            </el-form-item>
-            <el-form-item label="子网掩码" required>
-              <el-input v-model="form.netmask" placeholder="255.255.255.0" style="width: 220px" />
-              <div v-if="errors.netmask" class="field-tip err">{{ errors.netmask }}</div>
-            </el-form-item>
-            <el-form-item label="拓扑 (topology)" required>
-              <el-select v-model="form.topology" style="width: 220px">
-                <el-option v-for="opt in topologyOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
-              </el-select>
-            </el-form-item>
-            <el-alert type="warning" show-icon :closable="false" class="net-warning">
-              <template #default>
-                修改网段或掩码会重建 NAT 规则与面板自身的 nginx 放行规则，并重启 OpenVPN 服务；
-                已有客户端的固定 IP 可能需要同步调整。
-              </template>
-            </el-alert>
-          </el-card>
-        </el-col>
-      </el-row>
+          </el-alert>
+        </section>
+      </div>
     </el-form>
 
-    <el-card shadow="never" class="panel">
-      <template #header>
-        <div class="panel-header"><span>只读指令（由面板 / 安装脚本维护）</span></div>
-      </template>
+    <section class="section-card">
+      <div class="section-card__head">
+        <h2 class="section-card__title">只读指令（由面板 / 安装脚本维护）</h2>
+      </div>
       <div class="muted readonly-hint">
         以下指令是面板正常工作所必需的，由安装脚本写入并随面板运行自动维护，此处仅作展示，不可在此修改。
       </div>
-      <el-descriptions :column="2" border size="small">
+      <el-descriptions :column="isMobile ? 1 : 2" border size="small">
         <el-descriptions-item label="management（管理接口）">{{ display(readonlyInfo.management) }}</el-descriptions-item>
         <el-descriptions-item label="status-version">{{ display(readonlyInfo.status_version) }}</el-descriptions-item>
         <el-descriptions-item label="crl-verify（吊销列表）">{{ display(readonlyInfo.crl_verify) }}</el-descriptions-item>
@@ -296,7 +279,14 @@
         <el-descriptions-item label="auth（摘要算法）">{{ display(readonlyInfo.auth) }}</el-descriptions-item>
         <el-descriptions-item label="cipher（旧版对称加密）">{{ display(readonlyInfo.cipher) }}</el-descriptions-item>
       </el-descriptions>
-    </el-card>
+    </section>
+
+    <!-- 手机端把主操作固定在视口底部，长表单滚动时也能随时保存 -->
+    <div v-if="isMobile" class="save-bar">
+      <el-button type="primary" :loading="saving" :disabled="saving || loading" @click="handleSave">
+        保存并应用
+      </el-button>
+    </div>
   </div>
 </template>
 
@@ -304,6 +294,9 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { getServerSettings, reexportAllClients, updateServerSettings } from "../api/settings";
+import { useBreakpoint } from "../composables/useBreakpoint";
+
+const { isMobile } = useBreakpoint();
 
 // ---------------------------------------------------------------------------
 // 服务端设置页：编辑 server.conf 的受管配置块。
@@ -769,92 +762,130 @@ onMounted(() => reload(false));
 </script>
 
 <style scoped>
-.page {
-  padding: 12px;
+.path-label {
+  margin-right: var(--space-1);
+  color: var(--text-subtle);
 }
-.toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-bottom: 12px;
+
+.page-header__subtitle code {
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: var(--fs-12);
+  word-break: break-all;
 }
-.toolbar .path .label {
-  color: #64748b;
-  margin-right: 6px;
-}
-.toolbar .actions > * + * {
-  margin-left: 8px;
-}
-.block-alert {
-  margin-bottom: 12px;
-}
-.panel {
-  margin-bottom: 16px;
-}
-.panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-weight: 600;
-}
+
 .settings-form :deep(.el-form-item) {
   margin-bottom: 18px;
 }
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.control-field {
+  width: 100%;
+  max-width: 220px;
+}
+
 .rows {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
   width: 100%;
 }
+
 .row-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   flex-wrap: wrap;
 }
+
+.row-input {
+  flex: 1 1 180px;
+  width: 100%;
+  max-width: 240px;
+}
+
 .inline-number {
-  margin-left: 12px;
+  margin-left: var(--space-3);
 }
-.field-tip {
-  margin-top: 4px;
-  font-size: 12px;
-  color: #909399;
-  line-height: 1.4;
-}
-.field-tip.err {
-  color: #f56c6c;
-}
+
 .muted {
-  color: #94a3b8;
+  color: var(--text-subtle);
 }
+
 .muted.hint {
-  margin-left: 8px;
-  font-size: 12px;
+  display: inline-block;
+  margin-left: var(--space-2);
+  font-size: var(--fs-12);
 }
+
 .apply-line {
-  margin-bottom: 8px;
-  font-size: 13px;
-  color: #334155;
+  margin-bottom: var(--space-2);
+  font-size: var(--fs-13);
+  color: var(--text);
 }
+
 .apply-line .label {
-  color: #64748b;
   margin-right: 6px;
+  color: var(--text-muted);
 }
+
 .tag-gap {
   margin-right: 6px;
 }
+
 .failed-list {
-  margin: 6px 0 0 18px;
-  color: #f56c6c;
-  font-size: 12px;
+  margin: var(--space-2) 0 0 var(--space-4);
+  color: var(--danger);
+  font-size: var(--fs-12);
 }
+
 .readonly-hint {
-  margin-bottom: 10px;
-  font-size: 13px;
+  margin-bottom: var(--space-3);
+  font-size: var(--fs-13);
 }
+
 .net-warning {
-  margin-top: 4px;
+  margin-top: var(--space-1);
+}
+
+.save-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+  margin: 0 calc(var(--space-4) * -1) calc(var(--space-4) * -1);
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -4px 12px rgba(16, 24, 40, 0.06);
+}
+
+.save-bar .el-button {
+  width: 100%;
+}
+
+@media (max-width: 1199.98px) {
+  .settings-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 767.98px) {
+  .control-field,
+  .row-input {
+    max-width: none;
+  }
+
+  .inline-number {
+    margin-left: 0;
+  }
 }
 </style>

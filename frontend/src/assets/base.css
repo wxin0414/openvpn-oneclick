@@ -1,17 +1,21 @@
 @import url("https://cdn.jsdelivr.net/npm/remixicon@4.2.0/fonts/remixicon.css");
 
-:root {
-  color: #0f172a;
-  background-color: #f8fafc;
-  font-family: "Inter", "Segoe UI", "PingFang SC", system-ui, -apple-system, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
-}
-
-* {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+}
+
+:root {
+  color: var(--text);
+  background-color: var(--surface-2);
+  font-family: "Inter", "Segoe UI", "PingFang SC", system-ui, -apple-system, sans-serif;
+  line-height: var(--lh);
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 a {
@@ -21,5 +25,12 @@ a {
 
 body {
   margin: 0;
-  background: #f8fafc;
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+html,
+body,
+#app {
+  min-height: 100%;
 }

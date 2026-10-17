@@ -1,62 +1,121 @@
 <template>
   <div class="page">
-    <div class="toolbar">
-      <div class="filters">
-        <el-input
-          v-model="filterName"
-          placeholder="按名称搜索"
-          clearable
-          size="small"
-          style="width: 200px"
-          @clear="handleFilter"
-          @keyup.enter.native="handleFilter"
-        />
-        <el-select v-model="filterStatus" placeholder="状态" clearable size="small" style="width: 140px" @change="handleFilter">
-          <el-option label="在线" value="online" />
-          <el-option label="离线" value="offline" />
-          <el-option label="禁用" value="disabled" />
-        </el-select>
-        <el-button size="small" type="primary" @click="handleFilter">查询</el-button>
-        <el-button size="small" @click="resetFilter">重置</el-button>
+    <div class="page-header">
+      <div class="page-header__text">
+        <h1 class="page-header__title">客户端管理</h1>
+        <p class="page-header__subtitle">签发证书、维护固定 IP 与路由，查看连接状态</p>
       </div>
-      <el-button type="primary" @click="openCreate">新增客户端</el-button>
-    </div>
-    <el-table :data="displayedClients" style="width: 100%" v-loading="loading">
-      <el-table-column prop="name" label="名称" />
-      <el-table-column prop="common_name" label="证书CN" />
-      <el-table-column prop="fixed_ip" label="固定IP" width="140" />
-      <el-table-column prop="routes" label="路由" />
-      <el-table-column label="状态" width="110">
-        <template #default="{ row }">
-          <el-tag :type="statusType(row)">{{ row.status }}</el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column label="操作" width="360">
-        <template #default="{ row }">
-          <el-button size="small" @click="openEdit(row)">编辑</el-button>
-          <el-button size="small" type="success" :loading="busyId === row.id" @click="handleExport(row)">下载</el-button>
-          <el-button size="small" type="warning" :disabled="row.status !== 'online'" @click="disconnect(row)">
-            强制下线
-          </el-button>
-          <el-button size="small" type="danger" :loading="busyId === row.id" @click="handleDelete(row)">删除</el-button>
-        </template>
-      </el-table-column>
-    </el-table>
-    <div class="pagination">
-      <el-pagination
-        v-model:current-page="currentPage"
-        v-model:page-size="pageSize"
-        :page-sizes="pageSizes"
-        :page-count="pageCount"
-        layout="total, sizes, prev, pager, next, jumper"
-        :total="clients.length"
-        @size-change="handleSizeChange"
-        @current-change="handlePageChange"
-      />
+      <div class="page-header__actions">
+        <el-button type="primary" @click="openCreate">新增客户端</el-button>
+      </div>
     </div>
 
-    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑客户端' : '新增客户端'" width="520px">
-      <el-form :model="form" label-width="120px">
+    <div class="filter-bar">
+      <el-input
+        v-model="filterName"
+        class="filter-field"
+        placeholder="按名称搜索"
+        clearable
+        size="small"
+        @clear="handleFilter"
+        @keyup.enter.native="handleFilter"
+      />
+      <el-select v-model="filterStatus" class="filter-field--sm" placeholder="状态" clearable size="small" @change="handleFilter">
+        <el-option label="在线" value="online" />
+        <el-option label="离线" value="offline" />
+        <el-option label="禁用" value="disabled" />
+      </el-select>
+      <el-button size="small" type="primary" @click="handleFilter">查询</el-button>
+      <el-button size="small" @click="resetFilter">重置</el-button>
+    </div>
+
+    <section class="section-card">
+      <el-table v-if="!isMobile" :data="displayedClients" style="width: 100%" v-loading="loading">
+        <el-table-column prop="name" label="名称" />
+        <el-table-column prop="common_name" label="证书CN" />
+        <el-table-column prop="fixed_ip" label="固定IP" width="140" />
+        <el-table-column prop="routes" label="路由" />
+        <el-table-column label="状态" width="110">
+          <template #default="{ row }">
+            <el-tag :type="statusType(row)">{{ row.status }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="360">
+          <template #default="{ row }">
+            <el-button size="small" @click="openEdit(row)">编辑</el-button>
+            <el-button size="small" type="success" :loading="busyId === row.id" @click="handleExport(row)">下载</el-button>
+            <el-button size="small" type="warning" :disabled="row.status !== 'online'" @click="disconnect(row)">
+              强制下线
+            </el-button>
+            <el-button size="small" type="danger" :loading="busyId === row.id" @click="handleDelete(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <!-- Phones get cards: a 6-column table would force horizontal scrolling. -->
+      <div v-else class="mobile-list" v-loading="loading">
+        <article v-for="row in displayedClients" :key="row.id" class="mobile-item">
+          <div class="mobile-item__head">
+            <span class="mobile-item__title">
+              <span class="status-dot" :class="`is-${row.status}`" aria-hidden="true"></span>
+              {{ row.name }}
+            </span>
+            <el-tag :type="statusType(row)" size="small" effect="light">{{ row.status }}</el-tag>
+          </div>
+          <dl class="mobile-item__meta">
+            <div>
+              <dt>虚拟 IP</dt>
+              <dd>{{ row.fixed_ip || "-" }}</dd>
+            </div>
+            <div>
+              <dt>证书CN</dt>
+              <dd>{{ row.common_name || "-" }}</dd>
+            </div>
+            <div>
+              <dt>路由</dt>
+              <dd>{{ row.routes || "-" }}</dd>
+            </div>
+          </dl>
+          <div class="mobile-item__actions">
+            <el-button size="small" @click="openEdit(row)">编辑</el-button>
+            <el-button size="small" type="success" :loading="busyId === row.id" @click="handleExport(row)">下载</el-button>
+            <el-dropdown trigger="click" placement="bottom-end" @command="(command) => handleRowCommand(command, row)">
+              <button type="button" class="icon-btn" aria-label="更多操作">
+                <el-icon><i class="ri-more-2-fill"></i></el-icon>
+              </button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="disconnect" :disabled="row.status !== 'online'">强制下线</el-dropdown-item>
+                  <el-dropdown-item command="delete" :disabled="busyId === row.id" divided>删除</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+          </div>
+        </article>
+        <el-empty v-if="!displayedClients.length && !loading" description="暂无客户端" />
+      </div>
+
+      <div class="pagination">
+        <el-pagination
+          v-model:current-page="currentPage"
+          v-model:page-size="pageSize"
+          :page-sizes="pageSizes"
+          :page-count="pageCount"
+          :layout="isMobile ? 'prev, pager, next' : 'total, sizes, prev, pager, next, jumper'"
+          :small="isMobile"
+          :total="clients.length"
+          @size-change="handleSizeChange"
+          @current-change="handlePageChange"
+        />
+      </div>
+    </section>
+
+    <el-dialog
+      v-model="dialogVisible"
+      :title="isEdit ? '编辑客户端' : '新增客户端'"
+      :width="isMobile ? '92vw' : '520px'"
+    >
+      <el-form :model="form" :label-width="isMobile ? undefined : '120px'" :label-position="isMobile ? 'top' : 'right'">
         <el-form-item label="名称" required>
           <el-input v-model="form.name" :disabled="isEdit" placeholder="如：client-01" @blur="debouncedValidate('name')" />
           <div
@@ -128,6 +187,9 @@ import {
 } from "../api/clients";
 import { waitForJob } from "../api/jobs";
 import { debounce } from "lodash-es";
+import { useBreakpoint } from "../composables/useBreakpoint";
+
+const { isMobile } = useBreakpoint();
 
 const clients = ref([]);
 const loading = ref(false);
@@ -395,6 +457,13 @@ const handleRevoke = async (row) => {
   }
 };
 
+// Mobile card menu: the secondary row actions live in an el-dropdown there, so
+// its commands are dispatched onto the very same handlers used by the table.
+const handleRowCommand = (command, row) => {
+  if (command === "disconnect") disconnect(row);
+  if (command === "delete") handleDelete(row);
+};
+
 const ensurePageInRange = () => {
   const maxPage = pageCount.value;
   if (currentPage.value > maxPage) {
@@ -496,35 +565,33 @@ onMounted(fetchData);
 </script>
 
 <style scoped>
-.page {
-  padding: 12px;
-}
-.toolbar {
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 12px;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.filters {
+.mobile-item__actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
 }
+
+.mobile-item__actions .el-button + .el-button {
+  margin-left: 0;
+}
+
+.mobile-item__actions .icon-btn {
+  margin-left: auto;
+  color: var(--text-muted);
+}
+
 .pagination {
   display: flex;
   justify-content: flex-end;
-  margin-top: 12px;
+  margin-top: var(--space-4);
 }
-.field-tip {
-  margin-top: 4px;
-  font-size: 12px;
-  color: #909399;
-}
-.field-tip.ok {
-  color: #67c23a;
-}
-.field-tip.err {
-  color: #f56c6c;
+
+@media (max-width: 767.98px) {
+  .pagination {
+    justify-content: center;
+  }
 }
 </style>

@@ -1,21 +1,20 @@
 <template>
   <div class="page" v-loading="loading">
-    <el-card class="server-card" shadow="never">
-      <template #header>
-        <div class="server-header">
-          <div class="meta">
-            <div class="title">OpenVPN 服务端</div>
-            <div class="desc">单实例管理，支持启停/重启/状态查询</div>
-          </div>
-          <div class="controls">
-            <el-button size="small" @click="doControl('status')">查询状态</el-button>
-            <el-button size="small" type="success" @click="doControl('start')">启动</el-button>
-            <el-button size="small" type="warning" @click="doControl('restart')">重启</el-button>
-            <el-button size="small" type="danger" @click="doControl('stop')">停止</el-button>
-          </div>
-        </div>
-      </template>
-      <el-descriptions :column="3" border>
+    <div class="page-header">
+      <div class="page-header__text">
+        <h1 class="page-header__title">OpenVPN 服务端</h1>
+        <p class="page-header__subtitle">单实例管理，支持启停/重启/状态查询</p>
+      </div>
+      <div class="page-header__actions">
+        <el-button size="small" @click="doControl('status')">查询状态</el-button>
+        <el-button size="small" type="success" @click="doControl('start')">启动</el-button>
+        <el-button size="small" type="warning" @click="doControl('restart')">重启</el-button>
+        <el-button size="small" type="danger" @click="doControl('stop')">停止</el-button>
+      </div>
+    </div>
+
+    <section class="section-card">
+      <el-descriptions :column="isMobile ? 1 : 3" border>
         <el-descriptions-item label="名称">{{ server.name || "-" }}</el-descriptions-item>
         <el-descriptions-item label="主机">{{ server.host || "-" }}</el-descriptions-item>
         <el-descriptions-item label="端口">{{ server.port || "-" }}</el-descriptions-item>
@@ -26,33 +25,24 @@
         </el-descriptions-item>
       </el-descriptions>
       <div class="status-panel">
-        <div class="panel-header">OpenVPN 服务状态输出</div>
+        <div class="section-card__title">OpenVPN 服务状态输出</div>
         <el-input type="textarea" :rows="10" v-model="statusOutput" readonly />
-       
       </div>
-    </el-card>
+    </section>
 
-    <el-card class="server-card" shadow="never">
-      <template #header>
-        <div class="server-header">
-          <div class="meta">
-            <div class="title">server.conf 配置</div>
-            <div class="desc">编辑后保存生效（保存后建议重启 OpenVPN）</div>
-          </div>
-          <div class="controls">
-            <el-button size="small" @click="loadConf">重新加载</el-button>
-            <el-button size="small" type="primary" @click="saveConf">保存配置</el-button>
-          </div>
+    <section class="section-card">
+      <div class="section-card__head">
+        <div>
+          <h2 class="section-card__title">server.conf 配置</h2>
+          <p class="section-card__desc">编辑后保存生效（保存后建议重启 OpenVPN）</p>
         </div>
-      </template>
-      <el-input
-        v-model="confContent"
-        type="textarea"
-        :rows="16"
-        resize="vertical"
-        placeholder="server.conf 内容"
-      />
-    </el-card>
+        <div class="head-actions">
+          <el-button size="small" @click="loadConf">重新加载</el-button>
+          <el-button size="small" type="primary" @click="saveConf">保存配置</el-button>
+        </div>
+      </div>
+      <el-input v-model="confContent" type="textarea" :rows="16" resize="vertical" placeholder="server.conf 内容" />
+    </section>
   </div>
 </template>
 
@@ -60,6 +50,9 @@
 import { onMounted, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { controlServer, getServerConf, listServers, updateServerConf } from "../api/servers";
+import { useBreakpoint } from "../composables/useBreakpoint";
+
+const { isMobile } = useBreakpoint();
 
 const server = ref({});
 const loading = ref(false);
@@ -127,41 +120,28 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.page {
-  padding: 12px;
+.section-card__desc {
+  margin-top: var(--space-1);
+  font-size: var(--fs-13);
+  color: var(--text-muted);
 }
-.server-card {
-  margin-bottom: 16px;
-}
-.server-header {
+
+.head-actions {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: var(--space-2);
 }
-.meta .title {
-  font-weight: 600;
+
+.head-actions .el-button + .el-button {
+  margin-left: 0;
 }
-.meta .desc {
-  color: #94a3b8;
-  font-size: 13px;
-}
-.controls > * + * {
-  margin-left: 6px;
-}
-.last-result {
-  margin-top: 10px;
-  color: #475569;
-  font-size: 13px;
-}
-.last-result .label {
-  margin-right: 6px;
-}
+
 .status-panel {
-  margin-top: 12px;
+  margin-top: var(--space-4);
 }
-.panel-header {
-  font-weight: 600;
-  margin-bottom: 8px;
+
+.status-panel .section-card__title {
+  margin-bottom: var(--space-2);
 }
 </style>

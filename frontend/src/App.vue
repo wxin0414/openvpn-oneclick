@@ -1,114 +1,438 @@
 <template>
-  <div v-if="isLoginPage" class="login-wrapper">
+  <div v-if="isLoginPage" class="login-shell">
     <router-view />
   </div>
-  <el-container v-else class="layout">
-    <el-aside width="220px" class="aside">
-      <div class="brand">OpenVPN Web</div>
-      <el-menu :default-active="activeMenu" class="menu" router>
-        <el-menu-item index="/">
-          <el-icon><i class="ri-dashboard-line"></i></el-icon>
-          <span>仪表盘</span>
-        </el-menu-item>
-        <el-menu-item index="/servers">
-          <el-icon><i class="ri-server-line"></i></el-icon>
-          <span>服务器管理</span>
-        </el-menu-item>
-        <el-menu-item index="/clients">
-          <el-icon><i class="ri-user-3-line"></i></el-icon>
-          <span>客户端管理</span>
-        </el-menu-item>
-        <el-menu-item index="/settings">
-          <el-icon><i class="ri-settings-3-line"></i></el-icon>
-          <span>服务端设置</span>
-        </el-menu-item>
-        <!-- <el-menu-item index="/openvpn">
+
+  <div v-else class="app-shell">
+    <!-- Desktop: 220px sidebar. Tablet: 64px icon rail (el-menu collapse). -->
+    <aside v-if="!isMobile" class="sidebar">
+      <div class="brand">
+        <span class="brand-mark">
           <el-icon><i class="ri-shield-keyhole-line"></i></el-icon>
-          <span>OpenVPN 控制</span>
-        </el-menu-item> -->
-        <el-menu-item index="/logs">
-          <el-icon><i class="ri-file-list-3-line"></i></el-icon>
-          <span>日志审计</span>
+        </span>
+        <span v-show="isDesktop" class="brand-text">OpenVPN Web</span>
+      </div>
+      <el-menu :default-active="activeMenu" router :collapse="!isDesktop" :collapse-transition="false" class="menu">
+        <el-menu-item v-for="item in menuItems" :key="item.path" :index="item.path">
+          <el-icon><i :class="item.icon"></i></el-icon>
+          <template #title>{{ item.label }}</template>
         </el-menu-item>
       </el-menu>
-    </el-aside>
-    <el-container>
-      <el-header class="header">
-        <div class="title">OpenVPN Web管理系统</div>
-        <div class="user-meta">
-          <span class="user-name">{{ username || "管理员" }}</span>
-          <el-button size="small" text type="danger" @click="logout">退出</el-button>
+      <div class="sidebar-footer">
+        <span v-show="isDesktop" class="version">v{{ version }}</span>
+        <el-tooltip content="退出" placement="right" :show-after="200" :disabled="isDesktop">
+          <button type="button" class="icon-btn" aria-label="退出登录" @click="logout">
+            <el-icon><i class="ri-logout-box-r-line"></i></el-icon>
+          </button>
+        </el-tooltip>
+      </div>
+    </aside>
+
+    <!-- Mobile: no persistent sidebar, the same menu lives in a drawer. -->
+    <el-drawer v-if="isMobile" v-model="drawerOpen" direction="ltr" size="248px" :with-header="false" class="app-drawer">
+      <div class="drawer-inner">
+        <div class="drawer-head">
+          <span class="brand-mark">
+            <el-icon><i class="ri-shield-keyhole-line"></i></el-icon>
+          </span>
+          <span class="brand-text">OpenVPN Web</span>
+          <button type="button" class="icon-btn" aria-label="关闭菜单" @click="drawerOpen = false">
+            <el-icon><i class="ri-close-line"></i></el-icon>
+          </button>
         </div>
-      </el-header>
-      <el-main class="main">
+        <el-menu :default-active="activeMenu" router class="menu" @select="drawerOpen = false">
+          <el-menu-item v-for="item in menuItems" :key="item.path" :index="item.path">
+            <el-icon><i :class="item.icon"></i></el-icon>
+            <template #title>{{ item.label }}</template>
+          </el-menu-item>
+        </el-menu>
+        <div class="drawer-foot">
+          <span class="drawer-user">{{ username || "管理员" }}</span>
+          <el-button text type="danger" @click="logout">退出</el-button>
+        </div>
+      </div>
+    </el-drawer>
+
+    <div class="main">
+      <header class="topbar">
+        <button v-if="isMobile" type="button" class="icon-btn" aria-label="打开菜单" @click="drawerOpen = true">
+          <el-icon><i class="ri-menu-line"></i></el-icon>
+        </button>
+        <div class="topbar-title">{{ pageTitle }}</div>
+        <div class="topbar-actions">
+          <el-dropdown trigger="click" placement="bottom-end">
+            <button type="button" class="user-trigger" aria-label="用户菜单">
+              <span class="user-avatar">{{ userInitial }}</span>
+              <span class="user-name">{{ username || "管理员" }}</span>
+              <el-icon class="user-caret"><i class="ri-arrow-down-s-line"></i></el-icon>
+            </button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item @click="logout">退出</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </div>
+      </header>
+      <main class="content">
         <router-view />
-      </el-main>
-    </el-container>
-  </el-container>
+      </main>
+    </div>
+  </div>
 </template>
 
 <script setup>
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+
+import { version } from "../package.json";
+import { useBreakpoint } from "./composables/useBreakpoint";
 
 const route = useRoute();
 const router = useRouter();
+const { isMobile, isDesktop } = useBreakpoint();
+
+const drawerOpen = ref(false);
+
+// Routes and menu entries are unchanged; the OpenVPN control page keeps its
+// route but stays out of the menu, exactly as before.
+const menuItems = [
+  { path: "/", label: "仪表盘", icon: "ri-dashboard-line" },
+  { path: "/servers", label: "服务器管理", icon: "ri-server-line" },
+  { path: "/clients", label: "客户端管理", icon: "ri-user-3-line" },
+  { path: "/settings", label: "服务端设置", icon: "ri-settings-3-line" },
+  // { path: "/openvpn", label: "OpenVPN 控制", icon: "ri-shield-keyhole-line" },
+  { path: "/logs", label: "日志审计", icon: "ri-file-list-3-line" },
+];
+
+const pageTitles = {
+  "/": "仪表盘",
+  "/servers": "服务器管理",
+  "/clients": "客户端管理",
+  "/settings": "服务端设置",
+  "/logs": "日志审计",
+  "/openvpn": "OpenVPN 控制",
+};
 
 const activeMenu = computed(() => route.path);
 const isLoginPage = computed(() => route.path === "/login");
 const username = computed(() => localStorage.getItem("username") || "");
+const pageTitle = computed(() => pageTitles[route.path] || "OpenVPN Web管理系统");
+const userInitial = computed(() => (username.value || "管理员").trim().slice(0, 1).toUpperCase());
 
 const logout = () => {
   localStorage.removeItem("token");
   localStorage.removeItem("username");
   router.push("/login");
 };
+
+// The drawer must not survive a navigation or a resize into the desktop layout.
+watch(
+  () => route.path,
+  () => {
+    drawerOpen.value = false;
+  },
+);
+watch(isMobile, (mobile) => {
+  if (!mobile) drawerOpen.value = false;
+});
 </script>
 
 <style scoped>
-.layout {
-  height: 100vh;
-}
-.login-wrapper {
-  min-height: 100vh;
-  background: radial-gradient(circle at 20% 20%, #0ea5e915, transparent 40%),
-    radial-gradient(circle at 80% 0%, #8b5cf615, transparent 45%),
-    #0b1220;
+/* ---------------------------------------------------------------- login --- */
+.login-shell {
   display: flex;
   align-items: center;
   justify-content: center;
+  min-height: 100vh;
+  padding: var(--space-6);
+  background:
+    radial-gradient(900px 480px at 12% -12%, rgba(63, 81, 181, 0.55), transparent 62%),
+    radial-gradient(760px 420px at 102% -6%, rgba(26, 35, 126, 0.6), transparent 58%),
+    #0d1230;
 }
-.aside {
-  background: #0f172a;
-  color: #e2e8f0;
+
+/* ---------------------------------------------------------------- shell --- */
+.app-shell {
   display: flex;
-  flex-direction: column;
+  min-height: 100vh;
+  background: var(--surface-2);
 }
-.brand {
-  padding: 18px 16px;
-  font-weight: 700;
-  letter-spacing: 0.5px;
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex: 0 0 var(--sidebar-w);
+  flex-direction: column;
+  width: var(--sidebar-w);
+  height: 100vh;
+  overflow-y: auto;
+  background: linear-gradient(180deg, var(--sidebar-bg) 0%, var(--sidebar-bg-deep) 100%);
+  color: var(--sidebar-text);
+}
+
+.brand,
+.drawer-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--header-h);
+  padding: 0 var(--space-4);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: var(--brand-500);
+  color: #fff;
+  font-size: 17px;
+}
+
+.brand-text {
+  overflow: hidden;
+  color: #fff;
+  font-size: var(--fs-14);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.menu {
+  --el-menu-bg-color: transparent;
+  --el-menu-text-color: var(--sidebar-text);
+  --el-menu-active-color: #ffffff;
+  --el-menu-hover-bg-color: rgba(255, 255, 255, 0.08);
+  --el-menu-hover-text-color: #ffffff;
+  --el-menu-item-height: 44px;
+  --el-menu-collapse-width: var(--sidebar-w-rail);
+  flex: 1;
+  padding: var(--space-2);
+  overflow-y: auto;
+  border-right: none;
+}
+
+.menu :deep(.el-menu-item) {
+  margin-bottom: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.menu :deep(.el-menu-item.is-active) {
+  background: var(--brand-500);
   color: #fff;
 }
-.menu {
-  border-right: none;
-  flex: 1;
-}
-.header {
+
+.sidebar-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: #ffffff;
-  border-bottom: 1px solid #f1f5f9;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
 }
-.title {
+
+.version {
+  font-size: var(--fs-12);
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.sidebar .icon-btn:hover,
+.drawer-inner .icon-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* --------------------------------------------------------------- drawer --- */
+.drawer-inner {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: linear-gradient(180deg, var(--sidebar-bg) 0%, var(--sidebar-bg-deep) 100%);
+  color: var(--sidebar-text);
+}
+
+.drawer-head .icon-btn {
+  margin-left: auto;
+}
+
+.drawer-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.drawer-user {
+  overflow: hidden;
+  color: #fff;
+  font-size: var(--fs-13);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------- top bar / main --- */
+.main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: var(--header-h);
+  padding: 0 var(--space-6);
+  background: rgba(255, 255, 255, 0.92);
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(8px);
+}
+
+.topbar-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: var(--fs-16);
   font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.user-meta {
-  color: #64748b;
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+.user-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 40px;
+  padding: 0 var(--space-2) 0 6px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-13);
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition);
+}
+
+.user-trigger:hover {
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+
+.user-trigger:focus-visible {
+  outline: 2px solid var(--brand-500);
+  outline-offset: 2px;
+}
+
+.user-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--brand-50);
+  color: var(--brand-700);
+  font-size: var(--fs-12);
+  font-weight: 700;
+}
+
+.user-name {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-caret {
+  color: var(--text-subtle);
   font-size: 14px;
 }
-.main {
-  background: #f8fafc;
+
+.content {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-6);
+}
+
+/* ----------------------------------------------------------- breakpoints ---
+   mobile < 768px | tablet 768-1199px (icon rail) | desktop >= 1200px
+   -------------------------------------------------------------------------- */
+@media (max-width: 1199.98px) {
+  .sidebar {
+    flex-basis: var(--sidebar-w-rail);
+    width: var(--sidebar-w-rail);
+  }
+
+  .brand {
+    justify-content: center;
+    padding: 0;
+  }
+
+  .menu {
+    padding: var(--space-2) 0;
+  }
+
+  .menu :deep(.el-menu-item) {
+    margin-bottom: 0;
+    border-radius: 0;
+  }
+
+  .sidebar-footer {
+    flex-direction: column;
+    padding: var(--space-3) 0;
+  }
+
+  .topbar {
+    padding: 0 var(--space-5);
+  }
+
+  .content {
+    padding: var(--space-5);
+  }
+}
+
+@media (max-width: 767.98px) {
+  .login-shell {
+    padding: var(--space-4);
+  }
+
+  .topbar {
+    gap: var(--space-2);
+    height: var(--header-h-sm);
+    padding: 0 var(--space-3) 0 var(--space-2);
+  }
+
+  .content {
+    padding: var(--space-4);
+  }
+
+  .user-trigger {
+    padding: 0 6px;
+  }
+
+  .user-name,
+  .user-caret {
+    display: none;
+  }
 }
 </style>
