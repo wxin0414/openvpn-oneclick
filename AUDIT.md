@@ -749,3 +749,47 @@ if (status === 401) {
 ### 本轮没做的
 
 各页面的**写操作**（保存设置、改口令、加用户、发测试通知）没有逐一点击——它们在模块 3/5/6/7 已有后端 API 级验证，但"点按钮真的生效"仍缺浏览器级证据。
+---
+
+## 模块 12：Docker —— 静态核对，发现 1 个真实问题
+
+| 核对项 | 结论 | 证据 |
+| --- | --- | --- |
+| 基础镜像与构建 | 通过 | `FROM debian:12-slim`，从 `panel/ovpnmanager-panel.tar.gz` 装面板，COPY `templates/` 后按**无后缀名**安装助手（`install -m 0755 "$name.sh" "/usr/local/lib/ovpnmanager/$name"`），与面板调用路径一致 |
+| 特权通道 | 通过（有意设计不同） | 容器无 systemd → 不走 `apply.socket`，改用 sudo 白名单（`/etc/sudoers.d/ovpnmanager`，0440，仅允许固定脚本、不接受参数） |
+| 端口/卷/能力 | 通过 | `EXPOSE 1194/udp 5698/tcp`；三个 VOLUME；compose 给 `NET_ADMIN` + `/dev/net/tun` |
+| 健康检查 | 通过 | compose healthcheck 打 `/api/health/ready`，该端点**确实存在**（`health.py:17`） |
+| **脚本清单完整性** | **发现问题（未修）** | 见下 |
+
+### 发现问题：Docker 镜像缺少 `self-update` 与 `systemctl-wrapper`
+
+Dockerfile 的复制清单（L30-32）只有 9 个脚本：
+
+```text
+apply-config apply-validate apply-panel-config panel-validate panel-nginx
+net-control service-control backup-now restore-backup apply-dispatch
+```
+
+sudoers（L42-47）只授权 6 条：`apply-config / apply-panel-config / net-control /
+service-control / backup-now / restore-backup`。
+
+而后端确实会调用另外两个：
+
+- `panel.py:66` `UPDATE_BIN = .../self-update`，`panel.py:747` 调 `run_helper("self-update", ...)`
+- 安装器会装 `systemctl-wrapper`（install.sh L1330），`service-control.sh` 依赖它
+
+**后果**：容器里点「在线升级」时，助手文件不存在 → sudo 报 command not found → 面板显示一个
+含糊的失败；「服务器管理」的启停按钮同理（容器里本来也没有 systemd 可管）。按钮在界面上
+存在但必然失败，属于**界面承诺与实际能力不一致**。
+
+**为什么没当场修**：可选方案有两种（补脚本 vs 显式禁用并返回明确错误），而对容器来说
+"升级内部安装"语义本身可疑（正确做法是重建镜像）。这是产品决策，不是纯 bug，我先记录证据。
+
+**建议修法**：用环境变量标记 Docker 部署，让「在线升级」「服务控制」直接返回
+`400 Docker 部署不支持该操作，请重建镜像`，并在 README 的 Docker 小节写明；比补一个
+必然失败的助手更诚实。
+
+### 未做的
+
+镜像**没有构建、没有运行**（本机无 Docker 环境），所以以上全部是静态核对。`verify-offline.sh`
+也未执行。这一点明确记为"未验证"，不写成"通过"。
