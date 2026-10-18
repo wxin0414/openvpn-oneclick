@@ -83,12 +83,6 @@ def list_servers(db: Session = Depends(deps.get_db)) -> list[Server]:
     return [server]
 
 
-@router.post("/", response_model=Server, status_code=status.HTTP_201_CREATED)
-def create_server(server_in: ServerCreate, db: Session = Depends(deps.get_db)) -> Server:
-    # 禁止新增：单服务器模式
-    raise HTTPException(status_code=400, detail="Single-server mode: creation disabled")
-
-
 @router.patch("/{server_id}", response_model=Server)
 def update_server(server_id: int, server_in: ServerUpdate, db: Session = Depends(deps.get_db)) -> Server:
     # 更新服务器信息
@@ -96,12 +90,6 @@ def update_server(server_id: int, server_in: ServerUpdate, db: Session = Depends
     if not db_obj:
         raise HTTPException(status_code=404, detail="Server not found")
     return crud.server.update(db, db_obj=db_obj, obj_in=server_in)
-
-
-@router.delete("/{server_id}", response_model=Server)
-def delete_server(server_id: int, db: Session = Depends(deps.get_db)) -> Server:
-    # 禁止删除：单服务器模式
-    raise HTTPException(status_code=400, detail="Single-server mode: deletion disabled")
 
 
 @router.get("/config", response_model=ServerConfPayload, dependencies=[Depends(get_current_user)])
@@ -132,13 +120,3 @@ def update_server_conf(payload: ServerConfPayload, user=Depends(get_current_user
     return ServerConfPayload(content=payload.content)
 
 
-@router.post("/control/{action}")
-def control_server(action: openvpn_service.ServiceAction, user=Depends(get_current_user)) -> dict[str, str]:
-    """控制 OpenVPN 服务 start/stop/restart/status（超级管理员）。"""
-    if not user.is_superuser:
-        raise HTTPException(status_code=403, detail="Not enough privileges")
-    try:
-        output = openvpn_service.control(action)
-    except RuntimeError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-    return {"action": action, "result": output, "status": _probe_status()}

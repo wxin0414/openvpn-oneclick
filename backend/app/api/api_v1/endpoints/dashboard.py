@@ -161,7 +161,7 @@ def get_dashboard_metrics(
         },
         # 告警：只统计"即将到期/已过期但未吊销"的客户端证书。
         # 之前这里是写死的 0，等于把最重要的运维提醒藏了起来。
-        "alerts": {"count": len(_expiring_certificates(db, 30))},
+        "alerts": _alerts(db),
         "recent_activity": recent_logs,
     }
 
@@ -206,3 +206,65 @@ def certificate_expiry(
         "expired": sum(1 for i in items if i["expired"]),
         "days": days,
     }
+
+# --------------------------------------------------------------------------- #
+# 告警汇总
+# --------------------------------------------------------------------------- #
+# 此前 alerts 只统计"证书 30 天内到期"。服务挂了、磁盘快满、特权助手通道失效
+# 这些更急的情况都不计入，用户从仪表盘上看不出来。
+# 这里复用自检的检查项，并加 30 秒缓存——仪表盘会被反复打开，不能让每次请求都去
+# fork 若干 systemctl。
+_ALERT_TTL_SECONDS = 30
+_alert_cache: dict[str, object] = {"at": 0.0, "value": None}
+
+
+def _alerts(db: Session) -> dict:
+    import time
+
+    from app.services import selfcheck as selfcheck_service
+
+    now = time.monotonic()
+    if _alert_cache["value"] is not None and now - float(_alert_cache["at"]) < _ALERT_TTL_SECONDS:  # type: ignore[arg-type]
+        cached = _alert_cache["value"]
+        assert isinstance(cached, dict)
+        return cached
+
+    items: list[dict] = []
+    try:
+        report = selfcheck_service.run_all()
+        for entry in report["items"]:
+            if entry["status"] in ("fail", "warn"):
+                items.append(
+                    {
+                        "level": "critical" if entry["status"] == "fail" else "warning",
+                        "key": entry["key"],
+                        "message": f'{entry["name"]}：{entry["detail"]}',
+                        "hint": entry["hint"],
+                    }
+                )
+    except Exception:  # noqa: BLE001 - 告警自身不能把仪表盘打挂
+        pass
+
+    for cert in _expiring_certificates(db, 30):
+        items.append(
+            {
+                "level": "critical" if cert["expired"] else "warning",
+                "key": f'cert:{cert["common_name"]}',
+                "message": (
+                    f'证书已过期 {abs(cert["days_left"])} 天：{cert["common_name"]}'
+                    if cert["expired"]
+                    else f'证书 {cert["days_left"]} 天后到期：{cert["common_name"]}'
+                ),
+                "hint": "吊销并重新签发该客户端",
+            }
+        )
+
+    value = {
+        "count": len(items),
+        "critical": sum(1 for i in items if i["level"] == "critical"),
+        "warning": sum(1 for i in items if i["level"] == "warning"),
+        "items": items[:20],
+    }
+    _alert_cache["at"] = now
+    _alert_cache["value"] = value
+    return value
