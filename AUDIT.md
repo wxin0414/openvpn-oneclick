@@ -44,6 +44,34 @@
 
 ---
 
+## 模块 3：后端 auth + security + ratelimit —— ⚠️ 完成核对，发现待修项
+
+| 核对项 | 结论 | 证据 |
+| --- | --- | --- |
+| 令牌含过期时间 | 通过 | `core/security.py` L21-24：`{"sub": ..., "exp": expire}`，HS256 |
+| 过期校验 | 通过 | `api/security.py` L21 `jwt.decode(..., algorithms=["HS256"])`，jose 默认校验 `exp` |
+| `sub` 缺失 / 签名错 | 通过 | L22-26 → 401 `Could not validate credentials` |
+| 停用账号立即失效 | 通过 | L33-37 每次请求都查 `is_active`，不等令牌过期 |
+| 口令哈希方案 | 通过 | `bcrypt_sha256`（`core/security.py` L9），避开 bcrypt 72 字节截断 |
+| 登录限速 | 通过 | 键为 `用户名@IP`（跨 IP 无法锁死管理员）、成功后重置、锁定用 `monotonic`、`_MAX_KEYS` 上限防内存增长 |
+| 2FA 失败也计入限速 | 通过 | `auth.py` 中 `_verify_otp_or_recovery` 失败后调用 `ratelimit.register_failure` |
+| **改口令后旧令牌仍可用** | **发现问题（未修）** | 见下 |
+
+### 发现：改口令 / 疑似泄露后，旧令牌在到期前始终有效
+
+**证据（代码，非真机）**：
+- `core/security.py` L21-24 只签 `sub` + `exp`，**没有 `iat`，也没有 token 版本号**
+- `api/security.py` L14-38 只做「解签 → 查用户 → 查 `is_active`」，**不比对口令修改时间**
+- 全仓库没有任何 token 黑名单 / 版本字段（`grep -r "token_version\|jti" backend/` 为空）
+
+**影响**：管理员改口令后，之前泄露的令牌最长仍可用 `ACCESS_TOKEN_EXPIRE_MINUTES`（本机 .env 是 120 分钟）。停用账号能立刻生效（L33），但**改口令不能**——两者本该一致。
+
+**建议修法（下一轮做）**：`users` 加 `password_changed_at`，签发时写 `iat`，校验时要求 `iat >= password_changed_at`。改动面：模型 + 迁移 + `create_access_token` + `get_current_user` + `change-password` 端点，共 5 处。
+
+**为什么本轮没修**：需要动登录链路 + 表结构迁移，必须配真机验证（改口令后旧令牌应 401、新令牌可用），本轮上下文余量不足以保证验证到位。**不做半截的安全改动。**
+
+---
+
 ## 待核对模块
 
 3. 后端 auth + security + ratelimit
