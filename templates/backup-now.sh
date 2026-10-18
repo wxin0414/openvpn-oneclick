@@ -56,7 +56,9 @@ done
 [ "$found" -gt 0 ] || fail "四个关键路径都不存在，似乎不是本项目的安装"
 
 mkdir -p "$BACKUP_DIR" || fail "无法创建备份目录 $BACKUP_DIR"
-chmod 0700 "$BACKUP_DIR" 2>/dev/null || true
+chmod 0750 "$BACKUP_DIR" 2>/dev/null || true
+# 目录与文件对面板用户组可读：面板的「备份下载」接口要用，否则只有 root 读得到。
+chgrp ovpnpanel "$BACKUP_DIR" 2>/dev/null || true
 
 ts="$(date +%Y%m%d-%H%M%S)"
 out="${BACKUP_DIR}/manual-${ts}.tar.gz"
@@ -74,7 +76,8 @@ if ! tar -czf "$tmp" -C / "${targets[@]/#/}" 2>/dev/null; then
   rm -f "$tmp"
   fail "打包失败"
 fi
-chmod 0600 "$tmp"
+chmod 0640 "$tmp" 2>/dev/null || true
+  chgrp ovpnpanel "$tmp" 2>/dev/null || true
 mv "$tmp" "$out"
 
 size="$(stat -c '%s' "$out" 2>/dev/null || echo 0)"

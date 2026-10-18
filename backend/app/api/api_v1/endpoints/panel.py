@@ -54,6 +54,8 @@ BACKUP_BIN = os.environ.get("BACKUP_BIN", "/usr/local/lib/ovpnmanager/backup-now
 BACKUP_TIMEOUT_SECONDS = int(os.environ.get("BACKUP_TIMEOUT_SECONDS", "180"))
 # 索引由 backup-now 追加，0644、不含密钥内容，面板无需 root 即可读
 BACKUP_INDEX = os.environ.get("BACKUP_INDEX_FILE", "/etc/ovpn-oneclick/backup-index.jsonl")
+# 备份目录（root 助手写入；目录 0750、文件 0640 归面板组，下载接口才能读）
+BACKUP_DIR = os.environ.get("BACKUP_DIR", "/var/backups/ovpn-oneclick")
 RESTORE_BIN = os.environ.get("RESTORE_BIN", "/usr/local/lib/ovpnmanager/restore-backup")
 RESTORE_TIMEOUT_SECONDS = int(os.environ.get("RESTORE_TIMEOUT_SECONDS", "300"))
 NET_BIN = os.environ.get("NET_BIN", "/usr/local/lib/ovpnmanager/net-control")
@@ -776,3 +778,28 @@ def restart_panel(db: Session = Depends(deps.get_db), user=Depends(ensure_superu
     _schedule_self_restart(3.0)
     safe_audit(db, getattr(user, "username", "?"), "panel.restart", "ovpnmanager", "scheduled")
     return {"ok": True, "message": "面板将在约 3 秒后重启，请稍后刷新页面重新登录。"}
+
+@router.get("/backups/{name}/download", dependencies=[Depends(ensure_superuser)])
+def download_backup(name: str):
+    """下载一个备份包。
+
+    安全要点：``name`` 来自 URL，必须严格匹配由 backup-now 生成的文件名，再做一次
+    realpath 包含性检查——否则 ``../`` 就能读走服务器上的任意文件（备份包里是 CA 私钥，
+    泄露等于所有客户端证书作废）。
+    """
+    import re
+    from pathlib import Path
+
+    from fastapi import HTTPException
+    from fastapi.responses import FileResponse
+
+    if not re.fullmatch(r"manual-\d{8}-\d{6}\.tar\.gz", name):
+        raise HTTPException(status_code=400, detail="备份文件名不合法")
+
+    backup_dir = Path(BACKUP_DIR).resolve()
+    target = (backup_dir / name).resolve()
+    if backup_dir not in target.parents or not target.is_file():
+        raise HTTPException(status_code=404, detail="备份不存在")
+    return FileResponse(
+        str(target), media_type="application/gzip", filename=name
+    )
