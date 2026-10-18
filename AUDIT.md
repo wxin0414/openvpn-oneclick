@@ -843,3 +843,10 @@ service-control / backup-now / restore-backup`。
 **验证**：`OVPN_DOCKER=1` 时直接调用 `control_server("status"/"restart")` → 两个都返回
 `HTTP 400 Docker 部署没有 systemd：请在宿主机执行 docker compose restart ovpn`；
 未设该变量时 241 项断言全部通过（行为不变）。镜像仍未构建运行，这一点不变。
+### 已修复（模块 11 发现的两个小问题）
+
+1. 顶栏回退标题缺空格：`OpenVPN Web管理系统` → `OpenVPN Web 管理系统`（App.vue）
+2. 客户端列表的「已禁用」加了 tooltip，说明**到期/超额会被自动禁用，延期或提配额后需手动点「启用」**
+   —— 对应模块 8 记录的行为观察，用界面提示解决，不改自动放行语义
+
+`npm run build` 通过。

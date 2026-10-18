@@ -56,9 +56,18 @@
             <span v-else class="muted">未分组</span>
           </template>
         </el-table-column>
-        <el-table-column label="状态" width="110">
+        <el-table-column label="状态" width="130">
           <template #default="{ row }">
-            <el-tag :type="statusType(row)">{{ row.status }}</el-tag>
+            <!-- 被禁用时给出可操作的解释：到期/超额会被后台自动禁用，
+                 而延期或提配额之后不会自动恢复，必须手点「启用」。 -->
+            <el-tooltip
+              v-if="row.disabled"
+              content="已禁用。到期或流量超额会被自动禁用；延长到期时间或提高配额后，需要手动点「启用」才会恢复。"
+              placement="top"
+            >
+              <el-tag type="warning">已禁用</el-tag>
+            </el-tooltip>
+            <el-tag v-else :type="statusType(row)">{{ row.status }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="430">

@@ -196,7 +196,7 @@ const pageTitles = {
 const activeMenu = computed(() => route.path);
 const isLoginPage = computed(() => route.path === "/login");
 const username = computed(() => localStorage.getItem("username") || "");
-const pageTitle = computed(() => pageTitles[route.path] || "OpenVPN Web管理系统");
+const pageTitle = computed(() => pageTitles[route.path] || "OpenVPN Web 管理系统");
 const userInitial = computed(() => (username.value || "管理员").trim().slice(0, 1).toUpperCase());
 
 const logout = () => {
