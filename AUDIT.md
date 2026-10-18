@@ -161,3 +161,33 @@ CCD 残留: 无    列表里是否还有: 0    剩余客户端数: 1（原有的
 12. Docker（Dockerfile/compose/entrypoint/verify-offline）
 13. 测试与 CI 覆盖
 14. 文档与代码一致性
+
+---
+
+## 模块 5：后端 settings（server.conf 解析/写入/历史/回滚）—— 部分完成
+
+| 核对项 | 结论 | 证据 |
+| --- | --- | --- |
+| Python 与 bash 的受管指令契约 | 通过（脚本逐字比对） | 26 条，集合与顺序完全一致 |
+| 历史版本回滚是否先校验、先备份 | 未核对 | 下一轮 |
+| 解析与写入往返（round-trip） | 由既有测试覆盖 | tests/test_apply_config.sh 53 项；本轮未另做真机往返 |
+
+契约比对结果：
+
+```text
+python MANAGED_DIRECTIVES: 26
+bash   MANAGED_ALLOW     : 26
+only in python: []      only in bash: []
+order identical: True
+```
+
+server_conf_writer.py L79 的注释要求"必须与 templates/apply-validate.sh 的 MANAGED_ALLOW 逐字一致"，这条契约确实成立。
+
+### 一次概念错配（记录以免误报）
+
+我第一次比对时把 Python 的 PUSH_ALLOW_PREFIXES（26 条）与 bash 的 PUSH_ALLOW（7 条）当成同一份东西，于是"发现"24 条只在 Python 侧。这是错的：
+
+- bash 的 PUSH_ALLOW（7 条：dhcp-option / redirect-gateway / route / sndbuf / rcvbuf / ifconfig-ipv6 / block-outside-dns）是 push 子指令白名单
+- Python 的 PUSH_ALLOW_PREFIXES（26 条）是托管块内允许出现的顶层指令名前缀，语义完全不同
+
+不是缺陷；但命名相近，对后来的维护者是可读性隐患。
