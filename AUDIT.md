@@ -191,3 +191,14 @@ server_conf_writer.py L79 的注释要求"必须与 templates/apply-validate.sh 
 - Python 的 PUSH_ALLOW_PREFIXES（26 条）是托管块内允许出现的顶层指令名前缀，语义完全不同
 
 不是缺陷；但命名相近，对后来的维护者是可读性隐患。
+### 历史回滚路径核对（settings.py L541-570）
+
+| 核对项 | 结论 | 证据 |
+| --- | --- | --- |
+| 危险操作需要显式确认 | 通过 | L549-550：`confirm` 必须等于 `RESTORE`，否则 400 |
+| 先校验再落盘 | 通过 | L554-557 `validate_candidate(text)`，失败直接 400 并带回原因；通过后才 `write_candidate` |
+| 备份文件名防穿越 | 通过 | L475-490 `_read_backup`：正则白名单、拒绝符号链接、大小上限、缺失 404 |
+| 替换失败可回滚 | 通过（助手侧） | L548 说明由 root 助手做"备份/替换/重启/回滚"；`RESULT != ok` 时把 REASON 写进审计 |
+| 审计 | 通过 | L564-570 记录 `settings.restore` + 成功/失败原因 |
+
+本轮**未发现缺陷**。模块 5 中"解析与写入往返"仍只由既有测试覆盖，未另做真机往返。
