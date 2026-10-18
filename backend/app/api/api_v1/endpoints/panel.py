@@ -342,8 +342,14 @@ def update_panel_settings(
         "TLS_CERT": payload.tls_cert if payload.tls_cert is not None
         else state.get("PANEL_TLS_CERT", ""),
         "TLS_KEY": payload.tls_key if payload.tls_key is not None
-        else state.get("PANEL_TLS_KEY", ""),
-    }
+        else state.get("PANEL_TLS_KEY", ""),    }
+
+    # 关闭 TLS 时必须同时清空证书路径。助手的校验规定"mode=off 不接受自定义证书路径"，
+    # 而这里默认沿用 state 里保留的旧路径，于是 {"tls_mode":"off"} 会被助手拒绝
+    # ——用户从界面**关不掉** TLS（真机实测踩到，只能靠显式传空字符串绕过）。
+    if merged["TLS_MODE"] == "off":
+        merged["TLS_CERT"] = ""
+        merged["TLS_KEY"] = ""
     if payload.allow_cidrs is not None:
         merged["ALLOW_CIDRS"] = ",".join(payload.allow_cidrs)
     elif merged["ALLOW_MODE"] == "custom":

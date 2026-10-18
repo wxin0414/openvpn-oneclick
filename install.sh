@@ -25,7 +25,7 @@
 
 set -Eeuo pipefail
 
-SCRIPT_VERSION="1.4.8"
+SCRIPT_VERSION="1.4.9"
 
 # ---------------------------------------------------------------------------
 # 下载源（可用环境变量覆盖）
@@ -110,7 +110,9 @@ PANEL_SERVER_NAME="${PANEL_SERVER_NAME:-_}"
 PANEL_ALLOW_MODE="${PANEL_ALLOW_MODE:-}"
 PANEL_ALLOW_CIDRS="${PANEL_ALLOW_CIDRS:-}"
 # TLS：off / selfsigned / existing（existing 时需同时给 cert 与 key）
-PANEL_TLS_MODE="${PANEL_TLS_MODE:-off}"
+# 新装默认开启自签 TLS：管理员口令不该走明文 HTTP。
+# 已装过的机器以 panel.state 为准（下方会读取），升级不会突然换协议。
+PANEL_TLS_MODE="${PANEL_TLS_MODE:-selfsigned}"
 PANEL_TLS_CERT="${PANEL_TLS_CERT:-}"
 PANEL_TLS_KEY="${PANEL_TLS_KEY:-}"
 # 面板 TLS 相关目录与 nginx 配置备份目录（root 所有）
@@ -1717,8 +1719,35 @@ load_panel_state() {
       PANEL_TLS_CERT="${PANEL_TLS_DIR}/panel-selfsigned.crt"
       PANEL_TLS_KEY="${PANEL_TLS_DIR}/panel-selfsigned.key"
     else
-      warn "panel.state 说用自签证书，但 ${PANEL_TLS_DIR} 里没有证书，本次按 off 渲染（可在面板里重新开启）"
-      PANEL_TLS_MODE="off"; PANEL_TLS_CERT=""; PANEL_TLS_KEY=""
+      # 证书不存在就现在生成：文件名与 SAN 规则和助手 apply-panel-config.sh 的
+      # ensure_selfsigned() 保持一致（IP 用 IP:，域名用 DNS:），避免两套证书。
+      _tls_cn="$PANEL_SERVER_NAME"
+      [ "$_tls_cn" = "_" ] && _tls_cn=""
+      [ -n "$_tls_cn" ] || _tls_cn="$(detect_public_ip 2>/dev/null || true)"
+      [ -n "$_tls_cn" ] || _tls_cn="$(hostname 2>/dev/null || echo localhost)"
+      case "$_tls_cn" in
+        *[0-9].[0-9]*) _tls_san="IP:${_tls_cn}" ;;
+        *) _tls_san="DNS:${_tls_cn}" ;;
+      esac
+      mkdir -p "$PANEL_TLS_DIR" 2>/dev/null || true
+      chmod 0700 "$PANEL_TLS_DIR" 2>/dev/null || true
+      if openssl req -x509 -newkey rsa:2048 -days 825 -nodes -sha256 \
+           -subj "/CN=${_tls_cn}" -addext "subjectAltName=${_tls_san}" \
+           -keyout "${PANEL_TLS_DIR}/panel-selfsigned.key" \
+           -out "${PANEL_TLS_DIR}/panel-selfsigned.crt" >/dev/null 2>&1 \
+         || openssl req -x509 -newkey rsa:2048 -days 825 -nodes -sha256 \
+           -subj "/CN=${_tls_cn}" \
+           -keyout "${PANEL_TLS_DIR}/panel-selfsigned.key" \
+           -out "${PANEL_TLS_DIR}/panel-selfsigned.crt" >/dev/null 2>&1; then
+        chmod 0600 "${PANEL_TLS_DIR}/panel-selfsigned.key" 2>/dev/null || true
+        chmod 0644 "${PANEL_TLS_DIR}/panel-selfsigned.crt" 2>/dev/null || true
+        PANEL_TLS_CERT="${PANEL_TLS_DIR}/panel-selfsigned.crt"
+        PANEL_TLS_KEY="${PANEL_TLS_DIR}/panel-selfsigned.key"
+        ok "已生成自签证书（CN=${_tls_cn}，825 天）：面板走 HTTPS"
+      else
+        warn "生成自签证书失败，本次按 off 渲染（可在面板「面板设置」里重新开启）"
+        PANEL_TLS_MODE="off"; PANEL_TLS_CERT=""; PANEL_TLS_KEY=""
+      fi
     fi
   else
     PANEL_TLS_CERT=""; PANEL_TLS_KEY=""

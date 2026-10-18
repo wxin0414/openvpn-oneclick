@@ -159,6 +159,28 @@ def _check_cert_expiry() -> dict:
                  "提前重新签发，避免同事突然连不上")
 
 
+def _check_panel_tls() -> dict:
+    """面板自身是否走 HTTPS。默认关闭时给出明确提示——口令明文跑在公网上是真风险。"""
+    try:
+        state = Path("/etc/ovpn-oneclick/panel.state").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return _item("panel_tls", "面板 TLS", "unknown", "读不到 panel.state", "")
+    mode = ""
+    for line in state.splitlines():
+        if line.startswith("PANEL_TLS_MODE="):
+            mode = line.split("=", 1)[1].strip().strip('"')
+            break
+    if mode in ("selfsigned", "existing"):
+        return _item("panel_tls", "面板 TLS", "ok", f"已开启（{mode}）")
+    return _item(
+        "panel_tls",
+        "面板 TLS",
+        "warn",
+        "未开启：登录口令与令牌走明文 HTTP",
+        "在「面板设置 → TLS」选「自签证书」并保存；浏览器会提示证书不受信任，属正常",
+    )
+
+
 def run_all() -> dict:
     """执行全部检查；任何一项异常都只影响该项。"""
     checks = [
@@ -172,6 +194,7 @@ def run_all() -> dict:
         lambda: _check_port(int(server_conf.load().port or 1194)),
         _check_tls_key,
         _check_cert_expiry,
+        _check_panel_tls,
         _check_disk,
     ]
     items: list[dict] = []
