@@ -72,6 +72,12 @@ def _ensure_user_role_column() -> None:
                 conn.exec_driver_sql(
                     "ALTER TABLE users ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'admin'"
                 )
+            if "totp_secret" not in cols:
+                conn.exec_driver_sql("ALTER TABLE users ADD COLUMN totp_secret VARCHAR(64)")
+            if "totp_enabled" not in cols:
+                conn.exec_driver_sql("ALTER TABLE users ADD COLUMN totp_enabled BOOLEAN NOT NULL DEFAULT 0")
+            if "totp_recovery" not in cols:
+                conn.exec_driver_sql("ALTER TABLE users ADD COLUMN totp_recovery VARCHAR(1200)")
     except Exception:  # noqa: BLE001 - 非 SQLite 或表不存在时跳过
         pass
 
