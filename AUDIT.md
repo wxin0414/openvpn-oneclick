@@ -530,3 +530,39 @@ summary: warn  {'ok': 11, 'warn': 1, 'fail': 0}
 ### 模块 8 结论
 
 `backup_scheduler`（last_run 只成功才写）✓、`status_sync`（不覆盖用户字段）✓、`selfcheck`（12 项合理）✓；`alert_worker` 仅标注已知限制；`ccd` 的写入路径已在模块 4 间接验证（清空固定 IP 后 CCD 真的变空）。
+---
+
+## 模块 9：前端基础（App / router / i18n / http 拦截器）—— 发现问题并已修
+
+### 问题（严重）：拦截器包装错误时丢掉了 `response`
+
+`frontend/src/api/http.js` 原实现：
+
+```js
+const wrapped = new Error(message);
+if (status !== undefined) wrapped.status = status;
+return Promise.reject(wrapped);      // ← 没有 response
+```
+
+但组件里到处都是：
+
+- `err?.response?.data?.detail || "兜底文案"` —— 取后端给的具体原因
+- `LoginView` L73：`e?.response?.headers?.["x-2fa-required"]` —— **用它判断要不要弹验证码输入框**
+
+`response` 一丢，这些判断全部落空：后端说得再具体（"验证码不正确""备份文件名不合法""该分组下没有可导出的 .ovpn"），界面也只显示通用文案；**开了 2FA 的账号登录时，验证码框根本不会出现**——等于 2FA 开了就登不进面板。
+
+修复：把 `error.response` 与 `error.config` 挂回包装后的 Error。`npm run build` 通过。
+
+### 必须纠正我之前的一个说法
+
+在 2FA 那一批里，我写的是"登录页验证码输入 ✅ 真机（入口包含提示文案）"。**那个"真机"只是确认了 bundle 里有字符串，不是功能验证。** 本轮才发现它实际上是被这个拦截器 bug 挡住的。
+
+同样的说法还出现在：分组筛选下拉、导出按钮、2FA 设置卡片——这些都是"bundle 里有关键字"，**不是"点下去能用"**。这一点我现在明确澄清，不让它继续冒充已验证。
+
+### 仍待验证
+
+浏览器里实际点击：登录（含 2FA）、建客户端、改分组、导出、下载备份。需要 CDP 驱动，本轮没有余量做。
+
+### 顺带记录：blob 请求的错误文案
+
+`responseType: "blob"` 的请求出错时 `error.response.data` 是 Blob，`data.detail` 取不到，会退化成 `Request failed with status code 4xx`。组件都有兜底文案，暂不改；记在这里。

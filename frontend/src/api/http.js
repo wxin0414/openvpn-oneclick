@@ -45,6 +45,12 @@ api.interceptors.response.use(
     if (status !== undefined) {
       wrapped.status = status;
     }
+    // 必须把原始 response 挂回去：组件里普遍用 err.response.data.detail 取后端给的具体原因，
+    // LoginView 还用 err.response.headers["x-2fa-required"] 判断要不要弹验证码输入框。
+    // 之前这里只包装了 message，response 一丢，上面的判断全部落空——后端说得再清楚，
+    // 界面也只会显示通用文案；开了 2FA 的账号更是连验证码框都不出来。
+    wrapped.response = error.response;
+    wrapped.config = error.config;
     return Promise.reject(wrapped);
   },
 );
