@@ -39,3 +39,50 @@ def list_audit_logs(
     offset = (page - 1) * page_size
     items = query.order_by(model.created_at.desc(), model.id.desc()).offset(offset).limit(page_size).all()
     return AuditLogPage(items=items, total=total, page=page, page_size=page_size)
+
+
+@router.get("/audit/export", summary="导出审计日志 CSV")
+def export_audit_logs(
+    limit: int = Query(5000, ge=1, le=50000),
+    action: str | None = Query(default=None),
+    db: Session = Depends(deps.get_db),
+):
+    """把审计日志导成 CSV。
+
+    两个细节：
+
+    * **文件头加 UTF-8 BOM**：否则 Excel 直接打开中文会是乱码（用户实际就是这么用的）。
+    * 列名取自表结构而不是硬编码，加字段时导出跟着变，不会悄悄少一列。
+    """
+    import csv
+    import io
+
+    from fastapi.responses import StreamingResponse
+
+    model = crud.audit_log.model
+    query = db.query(model)
+    if action:
+        query = query.filter(model.action == action)
+    rows = query.order_by(model.created_at.desc(), model.id.desc()).limit(limit).all()
+    columns = [column.name for column in model.__table__.columns]
+
+    def generate():
+        buffer = io.StringIO()
+        writer = csv.writer(buffer)
+        writer.writerow(columns)
+        # BOM：Excel 需要它才会按 UTF-8 解码
+        yield "\ufeff" + buffer.getvalue()
+        buffer.seek(0)
+        buffer.truncate(0)
+        for row in rows:
+            writer.writerow([getattr(row, column, "") for column in columns])
+            yield buffer.getvalue()
+            buffer.seek(0)
+            buffer.truncate(0)
+
+    filename = f"audit-{datetime.now().strftime('%Y%m%d-%H%M%S')}.csv"
+    return StreamingResponse(
+        generate(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
