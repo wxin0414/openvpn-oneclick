@@ -871,3 +871,32 @@ service-control / backup-now / restore-backup`。
 
 另外确认：升级会整体替换面板目录，所以放在 `/opt/ovpnmanager/backend/app/` 下的标记文件会被覆盖——
 这是升级的正常行为；快照排除了 `backend/data`，数据不受影响。
+### 验证过程中的关键发现：我一直在测旧安装器
+
+多次 `--update` 后 `/var/backups/ovpn-oneclick/` 都没有新的 `code-*.tar.gz`。排查过程：
+
+1. 把 `code_snapshot` / `code_restore` 两个函数从已部署的 install.sh 里抽出来单独执行
+   → **成功**生成 288 KB 快照，`CODE_SNAPSHOT` 赋值正确
+2. 于是在函数体内加了一行无条件诊断日志（`待打包 N 项`），重新打包部署后再跑 `--update`
+   → 日志里**仍然没有这一行**，且已部署的 `/usr/local/lib/ovpnmanager/install.sh` 里
+   `grep -c '待打包'` = **0**
+
+结论：**服务器上的 install.sh 从来不是我改过的那份**。我的部署流程只上传
+`panel/ovpnmanager-panel.tar.gz`，然后执行服务器上 `/root/ovpn-oneclick/install.sh` ——
+那份脚本是早前传上去的旧副本，此后所有 install.sh 的修改（快照、回滚、nginx 范围扩展）
+**都没有真正生效过**。
+
+`--update` 之所以也没测到，是因为它会从 GitHub 下载安装器执行，而当时的推送版本还没有
+"把 code_snapshot 移到 resolve_openvpn_layout 之后"这一处修正。
+
+**这不是产品缺陷，是我的验证方法缺陷**；但它解释了前面几轮"改了没效果"的现象。
+（真正需要补的是：部署流程必须同时上传 install.sh。这条已记在这里，避免以后再犯。）
+
+### 升级回滚的当前真实状态
+
+- 代码：已实现（`code_snapshot` 位置修正 + 默认备份目录 + `code_restore` + `do_update` 接线），
+  `bash -n` 与 93 项安装器断言通过
+- 真机验证：**未完成**。快照与回滚都还没在"上传了正确 install.sh"的前提下跑过一次
+- 「故意让升级失败」的测试：**没做**
+
+不写成"已验证"。

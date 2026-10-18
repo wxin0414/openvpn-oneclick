@@ -2123,13 +2123,22 @@ backup_current() {
 # 代码打一份，至少留一条人工可回退的路（自动回滚见 do_update 的说明）。
 code_snapshot() {
   CODE_SNAPSHOT=""
+  PANEL_BACKUP_DIR="${PANEL_BACKUP_DIR:-/var/backups/ovpn-oneclick}"
   mkdir -p "$PANEL_BACKUP_DIR"
   local stamp; stamp="$(date +%Y%m%d-%H%M%S)"
   local out="${PANEL_BACKUP_DIR}/code-${stamp}.tar.gz"
   local targets=()
   [ -d "$PANEL_HOME" ] && targets+=("$PANEL_HOME")
   [ -d /usr/local/lib/ovpnmanager ] && targets+=("/usr/local/lib/ovpnmanager")
-  [ -f /etc/nginx/conf.d/ovpnmanager.conf ] && targets+=("/etc/nginx/conf.d/ovpnmanager.conf")
+  # nginx 站点配置两种布局都要收：conf.d（Debian 上常见）与 sites-available
+  # （本机实测就在 sites-available，只写 conf.d 会漏掉，回滚时站点配置不被还原）。
+  local cand
+  for cand in /etc/nginx/conf.d/ovpnmanager.conf /etc/nginx/sites-available/ovpnmanager.conf; do
+    [ -f "$cand" ] && targets+=("$cand")
+  done
+  # deploy_panel 也会重写 systemd 单元，坏单元同样会让面板起不来
+  [ -f /etc/systemd/system/ovpnmanager.service ] && targets+=("/etc/systemd/system/ovpnmanager.service")
+  info "生成代码快照：待打包 ${#targets[@]} 项（PANEL_HOME=${PANEL_HOME:-<空>}）"
   if [ "${#targets[@]}" -eq 0 ]; then
     return 0
   fi
@@ -2232,8 +2241,10 @@ do_update() {
 
   self_update
   backup_current
-  code_snapshot
-  local snap="${CODE_SNAPSHOT:-}"
+
+  # 注意：code_snapshot 不能放在这里。此时 resolve_openvpn_layout 还没跑，
+  # PANEL_HOME / PANEL_BACKUP_DIR 可能仍是空值（真机实测：快照根本没生成）。
+  # 它被安排在 adopt_layout 之后、deploy_panel 之前。
 
   detect_os
   resolve_openvpn_layout
@@ -2246,6 +2257,10 @@ do_update() {
     # 对齐到既有布局（复用 PKI / tls 密钥 / server.conf / 网段 / 协议 / 端口）
     adopt_layout
   fi
+
+  # 此时路径变量都已就位，快照才有意义
+  code_snapshot
+  local snap="${CODE_SNAPSHOT:-}"
 
   # 部署或自检失败时用升级前的快照回滚，避免留下"代码已换、状态没更新"的中间态。
   # 用 `|| rc=$?` 而不是 `if !`，是为了保留当前 shell 的全局变量（save_state 依赖它们）。
