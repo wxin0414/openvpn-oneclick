@@ -345,3 +345,21 @@ NOTIFY_ALLOW_PRIVATE=1 时 127.0.0.1:9 -> 真的去连，URLError（连接被拒
 ```
 
 **过程中我引入又修掉的一个 bug**：在 `_post` 里写 `import urllib.parse` 会让 `urllib` 变成该函数的局部名，后面的 `urllib.request.Request` 直接 `UnboundLocalError`。改成模块顶部 import 后正常——这类作用域问题只有真跑一遍才会暴露。
+### 真机验证 SSRF 修复时又发现一个 bug：webhook 地址清不掉
+
+部署后通过面板接口实测：
+
+```text
+PUT {"webhook_url":"http://127.0.0.1:7505/x"} -> 200
+POST /api/notify/test -> {"ok":false,"reason":"webhook 地址不能指向本机或内网（…）"}   ← 防线生效
+PUT {"webhook_url":"http://169.254.169.254/latest/meta-data/"} -> 200
+POST /api/notify/test -> 同一个拒绝原因                                              ← 防线生效
+PUT {"webhook_url":null} -> 200
+GET /api/notify/ -> webhook_url 仍是 169.254.169.254…                                 ← 清不掉！
+```
+
+**根因**：`notify.py` L59 `notify_service.save(db, **payload.model_dump(exclude_none=True))` —— `exclude_none` 把**显式传的 null** 一起丢掉了，于是"清空地址"这个操作根本到不了后端。与之前 TLS 证书路径"关不掉 TLS"是同一类错误。
+
+**修法**：用 `payload.model_fields_set` 区分"没传这个字段"与"传了空值"，显式 null/空串一律写成 `""`。
+
+验证：241 项测试通过。**真机复验待下一轮**（已部署到服务器的那份配置里仍留着那个内网地址，虽然 `enabled=false`，下轮会清掉并复验）。

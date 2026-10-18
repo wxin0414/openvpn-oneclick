@@ -56,7 +56,13 @@ def read_notify(db: Session = Depends(deps.get_db)) -> dict:
 
 @router.put("/", dependencies=[Depends(ensure_superuser)])
 def update_notify(payload: NotifyPayload, db: Session = Depends(deps.get_db)) -> dict:
-    cfg = notify_service.save(db, **payload.model_dump(exclude_none=True))
+    data = payload.model_dump(exclude_none=True)
+    # exclude_none 会把"显式传 null"一起丢掉，于是 webhook 地址永远清不掉
+    # （真机踩到：PUT {"webhook_url": null} 之后仍返回旧地址，和 TLS 证书那次同一类）。
+    # 这里用 model_fields_set 区分"没传"与"传了空值"。
+    if "webhook_url" in payload.model_fields_set and not (payload.webhook_url or "").strip():
+        data["webhook_url"] = ""
+    cfg = notify_service.save(db, **data)
     return {
         "enabled": cfg.enabled,
         "webhook_url": cfg.webhook_url,
