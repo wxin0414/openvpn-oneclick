@@ -4,6 +4,56 @@
 
 关于版本号：仓库历史中 `VERSION.txt` 由 `1.2.2` 直接跳到 `1.2.4`，没有 1.2.3 的独立提交，因此这里没有 `[1.2.3]` 条目。1.2.2 与 1.2.3 都因下列安装缺陷无法在 Debian 12 上完成安装，修复集中在 1.2.4。
 
+## [1.5.0] — 2026-10-18
+
+告警与通知闭环（第 2、3 项）。
+
+### alerts 扩展（第 2 项）
+
+`/api/dashboard/metrics` 的 `alerts` 此前只有「证书 30 天内到期」一个来源，服务挂了、
+磁盘快满、特权助手通道失效都看不见。现在复用自检项汇总，返回：
+
+```json
+{"count": 2, "critical": 1, "warning": 1,
+ "items": [{"level": "critical", "key": "helper_channel", "message": "...", "hint": "..."}]}
+```
+
+来源：OpenVPN / 面板 / nginx 服务、`apply.socket`、管理接口、磁盘、证书到期。
+带 30 秒缓存（仪表盘会被反复打开，不能让每次请求都 fork `systemctl`），整体包在 try 里，
+告警自身异常不会把仪表盘打挂。
+
+### Webhook 通知（第 3 项）
+
+- `POST /api/notify/test`：手动测试发送（真机验证 sink 收到完整 JSON，中文未乱码）
+- `GET/PUT /api/notify/`：配置 `enabled / webhook_url / min_level / cooldown_seconds`，
+  仅超级管理员；无令牌访问返回 401
+- `services/notify.py`：只允许 `http(s)://`、5 秒超时、**所有异常吞掉只记日志**——
+  推送失败绝不影响主流程
+- `services/alert_worker.py`：每 `ALERT_CHECK_SECONDS`（默认 300）算一次告警，
+  逐条走 `send_alert_once`；循环体整体包 try，单次失败线程不退出
+
+### 已知限制（不要当成 bug 忽略）
+
+**冷却去重是进程内内存，面板重启后同一条告警会重发一次。** 真机演练用两次独立
+`python -c` 进程跑巡检，看到 sink 从 2 条涨到 4 条——这不是冷却失效，而是进程内状态不跨进程。
+真正的作用范围是那一个长期运行的巡检线程。
+
+### 真机演练（110.42.102.239）
+
+```text
+停掉 apply.socket -> inactive
+巡检一轮          -> sink 收到 critical|helper_channel、warning|panel_tls
+恢复 apply.socket -> active
+```
+
+另外两次巡检都打印了 `management 接口熔断 5.0s：'status 3' 失败：timed out`——
+与 `apply.socket` 无关（那是 127.0.0.1:7505 的 TCP 接口），**尚未定位，不能下结论**。
+
+### 仍未完成（不隐瞒）
+
+- 通知的前端配置卡片（现在只能用 API 配）
+- SMTP 渠道（目标里标为可选）
+- 第 4、6、7、8、9、10 项（客户端配额与到期、2FA、分组、定时备份、审计导出、暗色/多语言）
 ## [1.4.9] — 2026-10-18
 
 面板 TLS：新装默认开启自签 HTTPS；修复"开了就关不掉"的锁死 bug。
