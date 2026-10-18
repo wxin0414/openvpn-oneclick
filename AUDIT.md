@@ -900,3 +900,32 @@ service-control / backup-now / restore-backup`。
 - 「故意让升级失败」的测试：**没做**
 
 不写成"已验证"。
+### 真机验证（上传正确 install.sh 之后）
+
+**1) 快照生成与内容（通过）**
+
+```text
+日志：生成代码快照：待打包 4 项（PANEL_HOME=/opt/ovpnmanager）
+     已生成代码快照：/var/backups/ovpn-oneclick/code-20261018-142652.tar.gz
+内容：size=358472  nginx=1  systemd=1  app=94  .venv=0
+```
+
+`nginx=1` 确认 `sites-available/ovpnmanager.conf` 已被收进来（之前只写 conf.d 时是 0）；
+`systemd=1` 确认单元文件也在；`.venv=0` 确认没有把虚拟环境塞进快照。
+
+**2) 故意让升级失败（部分验证）**
+
+```text
+把面板包替换成 2000 字节随机数据
+UPDATE_RC=1
+日志：tar: Child returned status 2 ...
+      [x] 面板包结构异常：找不到 backend/ 目录
+升级后：version=2.0.4（未变）  panel=active  nginx=active
+```
+
+失败被 **deploy_panel 的结构预检**拦住，代码根本没被替换，服务全程正常。这本身是好事
+（fail-fast，破坏面为零），但意味着 **`code_restore` 的回滚分支仍未被执行过**。
+
+要真正走回滚分支，需要构造一个"结构检查通过、但部署后自检失败"的包
+（例如含 `backend/` 目录但缺 `app/main.py`）。这需要单独一轮，且必须在回滚失效时用
+`pack + --adopt` 兜底。**本轮到这里为止，不把回滚写成"已验证"。**
