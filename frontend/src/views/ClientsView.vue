@@ -393,6 +393,11 @@ const openCreate = async () => {
     routes: "",
     status: "offline",
     disabled: false,
+    // 这三项必须一起清空：否则"编辑 A 之后点新增"会把 A 的到期/配额/分组
+    // 悄悄带给新客户端（真机上表现为"新增出来的客户端莫名其妙带着分组/到期"）。
+    expires_at: "",
+    quota_mb: null,
+    group_name: "",
   });
   isEdit.value = false;
   resetValidateState();
@@ -532,7 +537,8 @@ const handleCreate = async () => {
       await updateClient(form.id, {
         fixed_ip: form.fixed_ip,
         routes: form.routes,
-        status: form.status,
+        // 不要再提交 status：它是后台线程按管理接口的在线列表维护的，
+        // 手动写会与同步逻辑互相覆盖（表现为刷新后状态又变回去）。
         expires_at: form.expires_at || null,
         quota_mb: form.quota_mb ?? null,
         group_name: form.group_name || null,
