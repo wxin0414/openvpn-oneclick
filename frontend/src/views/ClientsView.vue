@@ -6,10 +6,10 @@
         <p class="page-header__subtitle">签发证书、维护固定 IP 与路由，查看连接状态</p>
       </div>
       <div class="page-header__actions">
-        <el-button type="primary" @click="openCreate">新增客户端</el-button>
-      <el-button @click="downloadsVisible = true">客户端下载</el-button>
-      <el-button :loading="exporting" @click="doExportCsv">导出清单</el-button>
-      <el-button :loading="exporting" @click="doExportOvpn">导出配置包</el-button>
+        <el-button type="primary" @click="openCreate">{{ t("新增客户端") }}</el-button>
+      <el-button @click="downloadsVisible = true">{{ t("客户端下载") }}</el-button>
+      <el-button :loading="exporting" @click="doExportCsv">{{ t("导出清单") }}</el-button>
+      <el-button :loading="exporting" @click="doExportOvpn">{{ t("导出配置包") }}</el-button>
       </div>
     </div>
 
@@ -32,8 +32,8 @@
         <el-option label="未分组" value="__none__" />
         <el-option v-for="g in groupOptions()" :key="g" :label="g" :value="g" />
       </el-select>
-      <el-button size="small" type="primary" @click="handleFilter">查询</el-button>
-      <el-button size="small" @click="resetFilter">重置</el-button>
+      <el-button size="small" type="primary" @click="handleFilter">{{ t("查询") }}</el-button>
+      <el-button size="small" @click="resetFilter">{{ t("重置") }}</el-button>
     </div>
 
     <section class="section-card">
@@ -64,15 +64,15 @@
         <el-table-column label="操作" width="430">
           <template #default="{ row }">
             <el-button size="small" @click="openEdit(row)">编辑</el-button>
-            <el-button size="small" type="success" :loading="busyId === row.id" @click="handleExport(row)">下载</el-button>
-            <el-button size="small" @click="openShare(row)">分享</el-button>
+            <el-button size="small" type="success" :loading="busyId === row.id" @click="handleExport(row)">{{ t("下载") }}</el-button>
+            <el-button size="small" @click="openShare(row)">{{ t("分享") }}</el-button>
             <el-button size="small" :type="row.disabled ? 'success' : 'warning'" @click="toggleDisabled(row)">
               {{ row.disabled ? "启用" : "禁用" }}
             </el-button>
             <el-button size="small" type="warning" :disabled="row.status !== 'online'" @click="disconnect(row)">
               强制下线
             </el-button>
-            <el-button size="small" type="danger" :loading="busyId === row.id" @click="handleDelete(row)">删除</el-button>
+            <el-button size="small" type="danger" :loading="busyId === row.id" @click="handleDelete(row)">{{ t("删除") }}</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -104,8 +104,8 @@
           </dl>
           <div class="mobile-item__actions">
             <el-button size="small" @click="openEdit(row)">编辑</el-button>
-            <el-button size="small" type="success" :loading="busyId === row.id" @click="handleExport(row)">下载</el-button>
-            <el-button size="small" @click="openShare(row)">分享</el-button>
+            <el-button size="small" type="success" :loading="busyId === row.id" @click="handleExport(row)">{{ t("下载") }}</el-button>
+            <el-button size="small" @click="openShare(row)">{{ t("分享") }}</el-button>
             <el-button size="small" :type="row.disabled ? 'success' : 'warning'" @click="toggleDisabled(row)">
               {{ row.disabled ? "启用" : "禁用" }}
             </el-button>
@@ -116,7 +116,7 @@
               <template #dropdown>
                 <el-dropdown-menu>
                   <el-dropdown-item command="disconnect" :disabled="row.status !== 'online'">强制下线</el-dropdown-item>
-                  <el-dropdown-item command="delete" :disabled="busyId === row.id" divided>删除</el-dropdown-item>
+                  <el-dropdown-item command="delete" :disabled="busyId === row.id" divided>{{ t("删除") }}</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
@@ -267,6 +267,7 @@ import {
   revokeClientCert,
   validateClient,
 } from "../api/clients";
+import { t } from "../i18n";
 import { waitForJob } from "../api/jobs";
 import { debounce } from "lodash-es";
 import { useBreakpoint } from "../composables/useBreakpoint";

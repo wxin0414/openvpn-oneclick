@@ -119,6 +119,7 @@ onMounted(() => {
   }
 });
 import { useBreakpoint } from "./composables/useBreakpoint";
+import { setLang as setI18nLang } from "./i18n";
 
 const route = useRoute();
 const router = useRouter();
@@ -167,6 +168,8 @@ function toggleTheme() {
 function toggleLang() {
   lang.value = lang.value === "en" ? "zh" : "en";
   localStorage.setItem("lang", lang.value);
+  // 同步给共享 i18n 模块：各视图的按钮/表单标签用它取英文，否则切语言只有导航会变
+  setI18nLang(lang.value);
 }
 
 const menuItems = [
