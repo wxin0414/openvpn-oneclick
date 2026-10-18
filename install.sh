@@ -2116,6 +2116,31 @@ backup_current() {
   ls -1t "${PANEL_BACKUP_DIR}"/panel-*.tar.gz 2>/dev/null | tail -n +6 | xargs -r rm -f || true
   return 0
 }
+# 升级前的**代码**快照。
+#
+# backup_current 只备份 .env 与数据库：数据能恢复，但代码不能——升级中途失败时
+# 面板可能是"代码已换、服务起不来"的中间态，而旧代码已经没了。这里把即将被覆盖的
+# 代码打一份，至少留一条人工可回退的路（自动回滚见 do_update 的说明）。
+code_snapshot() {
+  mkdir -p "$PANEL_BACKUP_DIR"
+  local stamp; stamp="$(date +%Y%m%d-%H%M%S)"
+  local out="${PANEL_BACKUP_DIR}/code-${stamp}.tar.gz"
+  local targets=()
+  [ -d "$PANEL_HOME" ] && targets+=("$PANEL_HOME")
+  [ -d /usr/local/lib/ovpnmanager ] && targets+=("/usr/local/lib/ovpnmanager")
+  [ -f /etc/nginx/conf.d/ovpnmanager.conf ] && targets+=("/etc/nginx/conf.d/ovpnmanager.conf")
+  if [ "${#targets[@]}" -eq 0 ]; then
+    return 0
+  fi
+  tar -czf "$out" \
+    --exclude='.venv' --exclude='node_modules' --exclude='__pycache__' \
+    --exclude='backend/data' \
+    "${targets[@]}" 2>/dev/null || { warn "代码快照失败（升级仍继续，但失败后无代码可回退）"; return 0; }
+  ok "已生成代码快照：${out}"
+  # 只留最近 3 份，避免把磁盘塞满
+  ls -1t "${PANEL_BACKUP_DIR}"/code-*.tar.gz 2>/dev/null | tail -n +4 | xargs -r rm -f || true
+  return 0
+}
 
 # 只把模板里"新版本新增、而现有 .env 没有"的键追加进去，
 # 既有键一律不动 —— 这是"推送新版本不会把老装机搞坏"的关键。
@@ -2184,6 +2209,7 @@ do_update() {
 
   self_update
   backup_current
+  code_snapshot
 
   detect_os
   resolve_openvpn_layout

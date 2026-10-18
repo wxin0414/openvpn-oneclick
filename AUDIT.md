@@ -240,3 +240,20 @@ server_conf_writer.py L79 的注释要求"必须与 templates/apply-validate.sh 
 ### 模块 6 结论
 
 TLS 相关全部通过（含关不掉的锁死修复）；恢复前有 PRE_BACKUP；**升级失败无回滚是唯一发现的问题，已记录未修**。备份/网络两项本轮只做了代码阅读，未真机验证。
+### 已做（本轮）：升级前的代码快照
+
+`install.sh` 新增 `code_snapshot()`，在 `do_update` 的 `backup_current` 之后调用：
+
+- 打包 `$PANEL_HOME`（排除 `.venv`、`node_modules`、`__pycache__`、`backend/data`）
+- 打包 `/usr/local/lib/ovpnmanager`（助手与模板）
+- 打包 `/etc/nginx/conf.d/ovpnmanager.conf`
+- 落在 `$PANEL_BACKUP_DIR/code-<stamp>.tar.gz`，只保留最近 3 份
+- 打包失败只警告，**不阻断升级**（不能让"备份失败"变成"装不上"）
+
+这样升级中途坏掉时，至少有一条人工可回退的路：解开快照、`systemctl restart ovpnmanager`、必要时重跑安装器 `--adopt`。在此之前**连这条都没有**。
+
+验证：`bash -n` 通过，安装器断言 93/93。
+
+### 仍未做（下一轮）：自动回滚
+
+`do_update` 依然是 `deploy_panel → self_check → save_state` 直下，失败不回滚。原因不变：`self_check` 内部会 `die`（直接退出脚本），用 `if !` 包不住，必须改成"返回值 + ERR trap 兜底"才可靠；这属于改主链路，需要用**故意失败的升级**做真机验收。半截的自动回滚比没有更危险，所以本轮只做可回退的底座。
