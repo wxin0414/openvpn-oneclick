@@ -4,6 +4,42 @@
 
 关于版本号：仓库历史中 `VERSION.txt` 由 `1.2.2` 直接跳到 `1.2.4`，没有 1.2.3 的独立提交，因此这里没有 `[1.2.3]` 条目。1.2.2 与 1.2.3 都因下列安装缺陷无法在 Debian 12 上完成安装，修复集中在 1.2.4。
 
+## [1.9.8] — 2026-10-18
+
+修复我在 v1.4.8 误删的 OpenVPN 服务控制接口（回归缺陷）。
+
+### 现象
+
+「服务器管理」页的「状态 / 启动 / 重启」按钮点击后提示 **Not Found**，真机日志：
+
+```text
+POST /api/servers/control/status HTTP/1.1" 404 Not Found
+POST /api/servers/control/start  HTTP/1.1" 404 Not Found
+```
+
+### 根因
+
+v1.4.8 清理「误导性的 POST/DELETE /api/servers」时，我用的是"从 `@router.post(` 行起、
+到下一个 `@router.` 之前整段删除"的粗糙做法——把 `@router.post("/control/{action}")`
+**一起删掉了**。当时只核对了 `POST /` 与 `DELETE /{id}` 变 405、`GET /` 仍 200，
+没有核对"删除后还剩哪些 POST 路由"，于是这个功能静默消失了一个月。
+
+### 修复
+
+从 `git show d28218c^:backend/app/api/api_v1/endpoints/servers.py` 取回该端点原样恢复。
+
+### 真机验证（110.42.102.239）
+
+```text
+POST /api/servers/control/status -> 200 {"action":"status","result":"active (running)"}
+POST /api/servers/control/start  -> 200 {"result":"start openvpn@server -> active"}
+openvpn 服务: active
+其余页面接口复核：settings/server、servers/、clients/、2fa/status、backups 全部 200
+```
+
+### 教训
+
+删除路由这类操作，必须**列出删除前后的完整路由表做 diff**，而不是只验证"目标用例"。
 ## [1.9.7] — 2026-10-18
 
 英文覆盖到各页主要按钮（第 10 项闭环），并修正 README 的「未实现」清单。
