@@ -1075,3 +1075,20 @@ L114 run: python tests/test_fixes.py
 
 > 这是审计工具的局限，不是产品的问题；但按本目标"绝不允许把未核对的说成已核对"的要求，
 > 它必须如实记为"未验证"。
+---
+
+## 模块 12：Docker —— ➖ 已按项目决定移除
+
+按维护决定不再支持容器化部署。删除清单：
+
+```text
+docker/Dockerfile  docker/entrypoint.sh  docker/nginx.conf  docker/verify-offline.sh
+docker-compose.yml
+panel.py / servers.py 中的 OVPN_DOCKER 守卫
+README.md / README.en.md 的 Docker 小节与"三条限制"
+```
+
+移除前该模块的结论是「静态通过、镜像从未构建运行、升级/启停必然不可用」；移除后这不再是
+待验证项，也不再是能力缺口。版本升到 **2.1.0**（破坏性变更）。
+
+后端断言仍为 252 项全通过（守卫移除后行为回到"仅单机部署"）。

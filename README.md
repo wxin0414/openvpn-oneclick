@@ -153,21 +153,6 @@ sudo: The "no new privileges" flag is set, which prevents sudo from running as r
 
 ---
 
-## Docker（可选）
-
-```bash
-docker compose up -d --build
-```
-
-镜像内含 OpenVPN + 面板 + nginx。容器里没有 systemd，因此特权动作走 **sudo 通道**而不是
-socket 激活：面板仍以非 root 用户运行，只通过 sudoers 里几条固定规则调用同一批助手（代码零改动）。
-
-> **镜像构建尚未在真机上验证完成**（作者的目标机未安装 Docker 守护进程）。已用
-> `sudo bash docker/verify-offline.sh` 做离线验证：配置生成、指令合法性、面板解析、`nginx -t`、
-> compose 字段，以及"助手安装名与 sudoers/面板期望一致"。构建与运行期行为请以实际日志为准。
-
----
-
 ## 明确未实现的功能
 
 除下面两项"刻意不做"的，还有一批**已规划但尚未实现**的能力（本仓 README 与代码保持一致，
@@ -197,7 +182,7 @@ socket 激活：面板仍以非 root 用户运行，只通过 sudoers 里几条�
 ## 已验证环境
 
 Debian 12（kernel 6.1）、OpenVPN 2.6、KVM 单机，国内公网链路。CI 在每次推送跑安装器断言、
-助手与面板的契约检查、以及后端 239 项断言。
+助手与面板的契约检查、以及后端 252 项断言。
 
 ## 致谢
 
@@ -208,16 +193,3 @@ Debian 12（kernel 6.1）、OpenVPN 2.6、KVM 单机，国内公网链路。CI �
 ## 许可
 
 见 [LICENSE](LICENSE) 与 [DISCLAIMER.md](DISCLAIMER.md)。
-
-## Docker 部署的三条限制
-
-容器里没有 systemd，OpenVPN 由 entrypoint 直接托管，因此：
-
-1. **在线升级不可用**：镜像内没有 `self-update` 助手。升级请重新构建：
-   `docker compose up -d --build`。面板会直接提示，不会给出含糊的失败。
-2. **服务启停不可用**：没有 systemd 可管。重启用 `docker compose restart ovpn`。
-   状态查询仍可用（`POST /api/servers/control/status` 返回容器内的真实状态）。
-3. **特权助手走 sudo 而非 socket**：镜像内的 `/etc/sudoers.d/ovpnmanager` 只授权固定脚本、
-   不接受参数；这与 systemd socket 激活是两套等价机制，不要混着改。
-
-其余功能（客户端、证书、配置、备份、通知、2FA、审计）在容器内与宿主机一致。

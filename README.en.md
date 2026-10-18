@@ -115,19 +115,6 @@ seconds rather than by trusting the exit code of `systemctl restart`.
 
 ---
 
-## Docker (optional)
-
-```bash
-docker compose up -d --build
-```
-
-> The image build has **not** been verified end-to-end on a real machine yet (the author's
-> target host has no Docker daemon). `sudo bash docker/verify-offline.sh` performs the offline
-> checks: config generation, directive validity, panel parsing, `nginx -t`, compose fields, and
-> that helper install names match what sudoers and the panel expect.
-
----
-
 ## Deliberately not implemented
 
 - **Rebuilding the CA**: invalidates every existing client certificate
