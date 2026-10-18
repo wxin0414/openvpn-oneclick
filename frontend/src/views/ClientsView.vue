@@ -8,6 +8,7 @@
       <div class="page-header__actions">
         <el-button type="primary" @click="openCreate">新增客户端</el-button>
       <el-button @click="downloadsVisible = true">客户端下载</el-button>
+      <el-button :loading="exporting" @click="doExportCsv">导出清单</el-button>
       </div>
     </div>
 
@@ -43,6 +44,12 @@
         </el-table-column>
         <el-table-column label="配额" width="100">
           <template #default="{ row }">{{ row.quota_mb ? row.quota_mb + " MB" : "不限" }}</template>
+        </el-table-column>
+        <el-table-column label="分组" width="130">
+          <template #default="{ row }">
+            <el-tag v-if="row.group_name" size="small" type="info">{{ row.group_name }}</el-tag>
+            <span v-else class="muted">未分组</span>
+          </template>
         </el-table-column>
         <el-table-column label="状态" width="110">
           <template #default="{ row }">
@@ -187,6 +194,10 @@
           <el-input-number v-model="form.quota_mb" :min="0" :max="10000000" :step="100" />
           <div class="field-tip">按累计用量计算；达到后自动写 CCD 的 disable 并断开连接</div>
         </el-form-item>
+        <el-form-item label="分组（可选）">
+          <el-input v-model="form.group_name" placeholder="如：团队A / 客户B，留空表示未分组" />
+          <div class="field-tip">纯标签，用于按组筛选与导出，不影响连接</div>
+        </el-form-item>
         <el-form-item label="路由(逗号分隔)">
           <el-input v-model="form.routes" placeholder="192.168.1.0/24,10.0.0.0/24" />
         </el-form-item>
@@ -239,6 +250,7 @@ import {
   createClient,
   createShareLink,
   setClientDisabled,
+  exportClientsCsv,
   getNextIp,
   deleteClient,
   listClients,
@@ -276,6 +288,7 @@ const form = reactive({
   routes: "",
   expires_at: "",
   quota_mb: null,
+  group_name: "",
   status: "offline",
 });
 const validateState = reactive({
@@ -386,6 +399,34 @@ const openEdit = (row) => {
   dialogVisible.value = true;
 };
 
+const exporting = ref(false);
+
+async function doExportCsv() {
+  const { value } = await ElMessageBox.prompt(
+    "输入分组名导出该组；留空则导出全部客户端",
+    "导出客户端清单",
+    { inputPlaceholder: "如：团队A（留空=全部）", confirmButtonText: "导出", cancelButtonText: "取消" }
+  ).catch(() => ({ value: null }));
+  if (value === null) return;
+  const group = String(value || "").trim();
+  exporting.value = true;
+  try {
+    const res = await exportClientsCsv(group || undefined);
+    const name = group ? `clients-${group}.csv` : "clients-all.csv";
+    const url = URL.createObjectURL(new Blob([res.data]));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = name;
+    link.click();
+    URL.revokeObjectURL(url);
+    ElMessage.success("已导出清单");
+  } catch (err) {
+    ElMessage.error(err?.response?.data?.detail || "导出失败");
+  } finally {
+    exporting.value = false;
+  }
+}
+
 async function toggleDisabled(row) {
   const next = !row.disabled;
   const tip = next
@@ -455,6 +496,7 @@ const handleCreate = async () => {
         status: form.status,
         expires_at: form.expires_at || null,
         quota_mb: form.quota_mb ?? null,
+        group_name: form.group_name || null,
       });
       ElMessage.success("已更新");
     } else {
@@ -475,6 +517,7 @@ const handleCreate = async () => {
         status: form.status,
         expires_at: form.expires_at || null,
         quota_mb: form.quota_mb ?? null,
+        group_name: form.group_name || null,
         passphrase: passphrase || null,
       });
       await runJob(response);

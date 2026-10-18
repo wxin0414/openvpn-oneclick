@@ -59,3 +59,7 @@ export const createShareLink = (id, ttlMinutes = 60) =>
 
 // 真正的禁用：后端会写 CCD 的 disable 行并断开会话
 export const setClientDisabled = (id, disabled) => api.patch(`/clients/${id}`, { disabled });
+
+// 导出客户端清单 CSV（可按分组）：blob，接口要 Bearer 令牌
+export const exportClientsCsv = (group) =>
+  api.get("/clients/export", { params: group ? { group } : {}, responseType: "blob" });
