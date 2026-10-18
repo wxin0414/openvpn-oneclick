@@ -36,6 +36,14 @@
         <el-table-column prop="common_name" label="证书CN" />
         <el-table-column prop="fixed_ip" label="固定IP" width="140" />
         <el-table-column prop="routes" label="路由" />
+        <el-table-column label="到期" width="120">
+          <template #default="{ row }">
+            {{ row.expires_at ? String(row.expires_at).slice(0, 10) : "永不过期" }}
+          </template>
+        </el-table-column>
+        <el-table-column label="配额" width="100">
+          <template #default="{ row }">{{ row.quota_mb ? row.quota_mb + " MB" : "不限" }}</template>
+        </el-table-column>
         <el-table-column label="状态" width="110">
           <template #default="{ row }">
             <el-tag :type="statusType(row)">{{ row.status }}</el-tag>
@@ -166,6 +174,19 @@
             {{ validateState.fixedIpMessage }}
           </div>
         </el-form-item>
+        <el-form-item label="到期时间（留空=永不过期）">
+          <el-date-picker
+            v-model="form.expires_at"
+            type="datetime"
+            value-format="YYYY-MM-DDTHH:mm:ss"
+            placeholder="留空则永不过期"
+            style="width: 100%"
+          />
+        </el-form-item>
+        <el-form-item label="流量配额 MB（留空=不限）">
+          <el-input-number v-model="form.quota_mb" :min="0" :max="10000000" :step="100" />
+          <div class="field-tip">按累计用量计算；达到后自动写 CCD 的 disable 并断开连接</div>
+        </el-form-item>
         <el-form-item label="路由(逗号分隔)">
           <el-input v-model="form.routes" placeholder="192.168.1.0/24,10.0.0.0/24" />
         </el-form-item>
@@ -253,6 +274,8 @@ const form = reactive({
   common_name: "client-01",
   fixed_ip: "10.8.0.10",
   routes: "",
+  expires_at: "",
+  quota_mb: null,
   status: "offline",
 });
 const validateState = reactive({
@@ -430,6 +453,8 @@ const handleCreate = async () => {
         fixed_ip: form.fixed_ip,
         routes: form.routes,
         status: form.status,
+        expires_at: form.expires_at || null,
+        quota_mb: form.quota_mb ?? null,
       });
       ElMessage.success("已更新");
     } else {
@@ -448,6 +473,8 @@ const handleCreate = async () => {
         fixed_ip: form.fixed_ip || null,
         routes: form.routes || null,
         status: form.status,
+        expires_at: form.expires_at || null,
+        quota_mb: form.quota_mb ?? null,
         passphrase: passphrase || null,
       });
       await runJob(response);
