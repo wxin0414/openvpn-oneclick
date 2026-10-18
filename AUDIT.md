@@ -98,7 +98,42 @@
 
 ---
 
-## 待核对模块
+## 模块 4：clients + certs + jobs —— ⚠️ 完成（修 1 处安全问题）
+
+| 核对项 | 结论 | 证据 |
+| --- | --- | --- |
+| 删除的清理范围 | 通过 | `cleanup_client_files` 删 `.ovpn` + CCD（`client_tasks.py` L41-50） |
+| 会话断开容错 | 通过 | `kick_session` 受 `revoke_kicks_session` 控制，失败只告警（L53-61） |
+| 同步/异步两种删除 | 通过 | `delete_client` 有 `wait` 参数，默认后台任务（`clients.py` L356-380） |
+| **删除时吊销证书** | **发现问题，已修** | 见下 |
+| 并发同名创建 / 任务失败回滚 | **未核对** | 本轮上下文不足，留到下一轮 |
+
+### 已修复：.ovpn 不存在时删除客户端不吊销证书
+
+**原代码**（`client_tasks.py`）：
+
+```python
+export_path = settings.openvpn_client_export_path / f"{common_name}.ovpn"
+revoked = False
+if export_path.exists():          # ← 把吊销绑在"导出文件存在"上
+    certs.revoke_client_cert(db, client, passphrase=passphrase)
+```
+
+`cleanup_client_files` 只删 `.ovpn` 和 CCD，**没有任何其他地方吊销证书**。所以删掉一个"从没导出过配置"或"`.ovpn` 被手动删除"的客户端时：证书留在 `pki/index.txt` 里仍是 valid、CRL 不重新生成、`certificates` 表仍是 valid —— 手里留着旧配置文件的人**照样能连进来**，而面板里已经看不到这个客户端。
+
+**修法**：无条件尝试吊销，失败只记日志（覆盖"本来没证书""已吊销"两种正常情况）。
+
+**真机验证（110.42.102.239）**：
+
+```text
+建客户端 rv1792301003（202），触发导出后手动删掉 .ovpn（模拟"无导出文件"路径）
+删除客户端 wait=true -> 200
+index.txt: 该 CN 的 R 行数 = 1，V 行数 = 0        ← 确实吊销了
+crl.pem mtime: 1792300974 -> 1792301012          ← CRL 确实重新生成
+CCD 残留: 无    列表里是否还有: 0    剩余客户端数: 1（原有的 client-01）
+```
+
+> 注：脚本第 1 步用 `grep "Valid.*CN=$CN$"` 判断建后状态，返回 0 —— 是**我的匹配模式**与该 easy-rsa 版本的 `index.txt` 格式不合，不是失败；第 5 步用 `^R.*CN=$CN$` 得到了 1，是决定性证据。
 
 3. 后端 auth + security + ratelimit
 4. 后端 clients + certs + jobs
