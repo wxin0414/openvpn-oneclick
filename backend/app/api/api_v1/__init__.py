@@ -9,6 +9,7 @@ from app.api.api_v1.endpoints import (
     health,
     jobs,
     logs,
+    notify,
     openvpn,
     panel,
     servers,
@@ -32,3 +33,4 @@ api_router.include_router(panel.router, prefix="/panel", tags=["panel"])
 api_router.include_router(share.router, tags=["share"])
 api_router.include_router(traffic.router, prefix="/traffic", tags=["traffic"])
 api_router.include_router(users.router, prefix="/users", tags=["users"])
+api_router.include_router(notify.router, prefix="/notify", tags=["notify"])
