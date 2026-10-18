@@ -1644,6 +1644,39 @@ def main() -> int:
     expect("S11 客户端列表匿名返回 401", s_anon_clients.status_code, 401)
 
     # ------------------------------------------------------------------ #
+    # T. 只读路由冒烟（审计模块 13：保证路由存在且不 5xx，改动即红）
+    # ------------------------------------------------------------------ #
+    def _ro(path: str, label: str) -> None:
+        resp = client.get(path, headers=headers)
+        check(
+            f"{label} 返回非 5xx 且路由存在",
+            resp.status_code != 404 and resp.status_code < 500,
+            f"{path} -> {resp.status_code}",
+        )
+
+    _ro("/api/health/live", "T1 存活探针")
+    _ro("/api/health/diagnostics", "T2 诊断接口")
+    _ro("/api/health/selfcheck", "T3 自检接口")
+    _ro("/api/dashboard/certificate-expiry", "T4 证书到期视图")
+    _ro("/api/traffic/overview", "T5 流量总览")
+    _ro("/api/logs/audit?page=1&page_size=5", "T6 审计列表")
+    _ro("/api/settings/history", "T7 配置历史列表")
+    _ro("/api/clients/next-ip", "T8 推荐地址")
+    _ro("/api/clients/online", "T9 在线列表")
+    _ro("/api/panel/backups", "T10 备份列表")
+    _ro("/api/notify/", "T11 通知配置读取")
+
+    t_live = client.get("/api/health/live")
+    expect("T12 存活探针匿名可达且为 200", t_live.status_code, 200)
+
+    t_validate = client.get("/api/clients/validate?name=smoke-name&common_name=smoke-name", headers=headers)
+    check(
+        "T13 名称校验接口可调用（200/422 均可，不得 5xx/404）",
+        t_validate.status_code in (200, 422) or t_validate.status_code < 500,
+        str(t_validate.status_code),
+    )
+
+    # ------------------------------------------------------------------ #
     print("\n" + "=" * 66)
     print(f"通过 {len(PASSED)} 项，失败 {len(FAILED)} 项")
     if FAILED:

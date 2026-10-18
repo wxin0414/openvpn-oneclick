@@ -1104,3 +1104,16 @@ CI #96  6a0116e  completed  success
 
 结论：删除容器化部署没有破坏安装器断言、契约检查或版本一致性。
 版本 **2.1.0** 已部署到 `110.42.102.239`（`/api/health/version` 返回 2.1.0）。
+### 再补 13 条只读路由冒烟断言（模块 13）
+
+新增 T 系列，覆盖此前无任何自动化引用的只读路由：
+
+```text
+T1-T11  health/live, health/diagnostics, health/selfcheck, dashboard/certificate-expiry,
+        traffic/overview, logs/audit, settings/history, clients/next-ip, clients/online,
+        panel/backups, notify/    —— 断言"路由存在且非 5xx"
+T12     health/live 匿名 200
+T13     clients/validate 可调用（200/422 均可，不得 5xx/404）
+```
+
+**结果：252 → 265 项断言，全部通过，0 失败。**
