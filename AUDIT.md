@@ -833,3 +833,13 @@ service-control / backup-now / restore-backup`。
 | CHANGELOG 与 tag 对应 | 修复后一致（v2.0.0 / v2.0.2 均有条目） |
 | README 的功能清单 vs 代码 | 早前已更新（2FA / 分组 / 暗色英文已从"未实现"移除） |
 | AUDIT.md 与代码 | 同步（每轮追加，含未修项与误判记录） |
+### 已修复：Docker 下这两个操作改为明确拒绝
+
+- `docker/Dockerfile` 增加 `ENV OVPN_DOCKER=1`
+- `panel.py` 的升级端点：Docker 下直接 400「请在宿主机重新构建镜像（docker compose up -d --build）」
+- `servers.py` 的 control 端点：Docker 下直接 400「请在宿主机 docker compose restart ovpn」
+- `README.md` 增加「Docker 部署的三条限制」小节
+
+**验证**：`OVPN_DOCKER=1` 时直接调用 `control_server("status"/"restart")` → 两个都返回
+`HTTP 400 Docker 部署没有 systemd：请在宿主机执行 docker compose restart ovpn`；
+未设该变量时 241 项断言全部通过（行为不变）。镜像仍未构建运行，这一点不变。

@@ -740,6 +740,14 @@ def start_upgrade(
     """
     from app.services import helper_client
 
+    # Docker 部署：镜像里没有 self-update 助手，升级的正确做法是重建镜像。
+    # 直接返回可执行的指引，而不是让按钮撞出一个 "command not found"。
+    if os.environ.get("OVPN_DOCKER") == "1":
+        raise HTTPException(
+            status_code=400,
+            detail="Docker 部署不支持在线升级：请在宿主机重新构建镜像并重启容器（docker compose up -d --build）",
+        )
+
     if str(payload.get("confirm", "")).strip().upper() != "UPGRADE":
         raise HTTPException(status_code=400, detail="需要确认：请在请求里带 confirm=UPGRADE")
 

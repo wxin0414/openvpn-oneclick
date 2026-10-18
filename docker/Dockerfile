@@ -7,7 +7,8 @@
 # 这样面板代码零改动，容器内外行为一致。
 FROM debian:12-slim
 
-ENV DEBIAN_FRONTEND=noninteractive \
+ENV OVPN_DOCKER=1 \
+    DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1
 
 RUN apt-get update \

@@ -1,3 +1,4 @@
+import os
 from ipaddress import ip_network
 from pathlib import Path
 
@@ -125,6 +126,12 @@ def control_server(action: openvpn_service.ServiceAction, user=Depends(get_curre
     """控制 OpenVPN 服务 start/stop/restart/status（超级管理员）。"""
     if not user.is_superuser:
         raise HTTPException(status_code=403, detail="Not enough privileges")
+    # 容器里没有 systemd，openvpn 由 entrypoint 直接托管：重启要在宿主机做。
+    if os.environ.get("OVPN_DOCKER") == "1":
+        raise HTTPException(
+            status_code=400,
+            detail="Docker 部署没有 systemd：请在宿主机执行 docker compose restart ovpn",
+        )
     try:
         output = openvpn_service.control(action)
     except RuntimeError as exc:

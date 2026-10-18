@@ -208,3 +208,16 @@ Debian 12（kernel 6.1）、OpenVPN 2.6、KVM 单机，国内公网链路。CI �
 ## 许可
 
 见 [LICENSE](LICENSE) 与 [DISCLAIMER.md](DISCLAIMER.md)。
+
+## Docker 部署的三条限制
+
+容器里没有 systemd，OpenVPN 由 entrypoint 直接托管，因此：
+
+1. **在线升级不可用**：镜像内没有 `self-update` 助手。升级请重新构建：
+   `docker compose up -d --build`。面板会直接提示，不会给出含糊的失败。
+2. **服务启停不可用**：没有 systemd 可管。重启用 `docker compose restart ovpn`。
+   状态查询仍可用（`POST /api/servers/control/status` 返回容器内的真实状态）。
+3. **特权助手走 sudo 而非 socket**：镜像内的 `/etc/sudoers.d/ovpnmanager` 只授权固定脚本、
+   不接受参数；这与 systemd socket 激活是两套等价机制，不要混着改。
+
+其余功能（客户端、证书、配置、备份、通知、2FA、审计）在容器内与宿主机一致。
