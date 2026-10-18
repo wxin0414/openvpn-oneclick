@@ -1,8 +1,10 @@
 import api from "./http";
 
-export const login = (username, password) =>
+// otp 走 query 参数：后端的登录表单是 OAuth2 password 形状，加字段会牵连整个调用，
+// 所以两步验证码用 ?otp= 传（见后端 auth.py 的说明）。
+export const login = (username, password, otp) =>
   api.post(
-    "/auth/login",
+    otp ? `/auth/login?otp=${encodeURIComponent(otp)}` : "/auth/login",
     new URLSearchParams({
       username,
       password,

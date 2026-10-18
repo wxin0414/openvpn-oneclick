@@ -13,6 +13,12 @@
       <el-form-item label="密码">
         <el-input v-model="form.password" type="password" autocomplete="current-password" show-password />
       </el-form-item>
+      <el-form-item v-if="needsOtp" label="两步验证码">
+        <el-input v-model="form.otp" placeholder="6 位验证码，或一张一次性恢复码" autocomplete="one-time-code" />
+        <div class="otp-hint">
+          该账号已开启两步验证：输入手机令牌 App 的 6 位码，或一张恢复码。
+        </div>
+      </el-form-item>
       <el-button type="primary" :loading="loading" class="full-btn" @click="submit">登录</el-button>
     </el-form>
   </div>
@@ -29,16 +35,25 @@ const loading = ref(false);
 const form = reactive({
   username: "",
   password: "",
+  otp: "",
 });
+
+// 后端对开启 2FA 的账号返回 401 + X-2FA-Required: 1；收到后才显示验证码输入框，
+// 没开 2FA 的账号界面完全不变。
+const needsOtp = ref(false);
 
 const submit = async () => {
   if (!form.username || !form.password) {
     ElMessage.warning("请输入用户名和密码");
     return;
   }
+  if (needsOtp.value && !form.otp) {
+    ElMessage.warning("请输入两步验证码或恢复码");
+    return;
+  }
   loading.value = true;
   try {
-    const { data } = await login(form.username, form.password);
+    const { data } = await login(form.username, form.password, form.otp || undefined);
     localStorage.setItem("token", data.access_token);
     localStorage.setItem("username", form.username);
     if (data.must_change_password) {
@@ -53,8 +68,14 @@ const submit = async () => {
     }
     router.push("/");
   } catch (e) {
-    // 登录限速（429）时后端会给出重试秒数，直接展示即可
-    ElMessage.error(e.message);
+    // 登录限速（429）时后端会给出重试秒数，直接展示即可。
+    // 2FA：后端用 401 + X-2FA-Required: 1 表示"口令对了，还缺验证码"，据此展开输入框。
+    if (e?.response?.headers?.["x-2fa-required"]) {
+      needsOtp.value = true;
+      ElMessage.warning("该账号已开启两步验证，请输入验证码后再次登录");
+    } else {
+      ElMessage.error(e?.response?.data?.detail || e.message);
+    }
   } finally {
     loading.value = false;
   }
@@ -108,5 +129,13 @@ const submit = async () => {
   .logo {
     font-size: var(--fs-16);
   }
+}
+</style>
+
+<style scoped>
+.otp-hint {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
 }
 </style>
