@@ -4,6 +4,39 @@
 
 关于版本号：仓库历史中 `VERSION.txt` 由 `1.2.2` 直接跳到 `1.2.4`，没有 1.2.3 的独立提交，因此这里没有 `[1.2.3]` 条目。1.2.2 与 1.2.3 都因下列安装缺陷无法在 Debian 12 上完成安装，修复集中在 1.2.4。
 
+## [1.7.3] — 2026-10-18
+
+修复备份下载的真机 500（目录组被覆盖）。
+
+### 现象
+
+界面和接口都正常，但点下载返回 `Internal Server Error`，日志是：
+
+```text
+PermissionError: [Errno 13] Permission denied: '/var/backups/ovpn-oneclick/manual-....tar.gz'
+```
+
+### 根因
+
+文件是 `-rw-r----- root:ovpnpanel`、面板用户也确实在 `ovpnpanel` 组里，但**目录**是
+`drwxr-x--- root:root` —— 组不可进入，所以文件权限再对也读不到。
+
+目录组被打回 root 的原因：`install.sh` 每次安装都会
+`chown root:root "$STATE_DIR" "$PANEL_TLS_DIR" "$PANEL_BACKUP_DIR"`，把助手里的
+`chgrp ovpnpanel` 覆盖掉。**只在助手侧改权限是不够的，安装器才是每次都会跑的那个。**
+
+### 改法
+
+在安装器的 chown 之后补 `chgrp "$PANEL_USER" "$PANEL_BACKUP_DIR"` 与 `chmod 0750`。
+
+### 真机验证（110.42.102.239）
+
+```text
+目录 -> drwxr-x--- root:ovpnpanel
+面板可进入目录
+下载 manual-20261018-112237.tar.gz -> HTTP 200  size=76554  包内 78 条目
+version 1.7.3，三服务 active
+```
 ## [1.7.2] — 2026-10-18
 
 备份的界面入口（第 8 项收尾）。

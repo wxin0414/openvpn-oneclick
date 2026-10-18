@@ -25,7 +25,7 @@
 
 set -Eeuo pipefail
 
-SCRIPT_VERSION="1.7.2"
+SCRIPT_VERSION="1.7.3"
 
 # ---------------------------------------------------------------------------
 # 下载源（可用环境变量覆盖）
@@ -1611,6 +1611,10 @@ install_panel_helper() {
   # 自签证书目录（0700）与 nginx 配置备份目录：助手以 root 写入，这里先建好
   mkdir -p "$STATE_DIR" "$PANEL_TLS_DIR" "$PANEL_BACKUP_DIR"
   chown root:root "$STATE_DIR" "$PANEL_TLS_DIR" "$PANEL_BACKUP_DIR" 2>/dev/null || true
+# 备份目录要能被面板读：容器的下载接口用它。安装时上面那行会 chown root:root，
+# 所以这里必须再把组改回面板用户并给它 x 位，否则面板连目录都进不去（实测 500）。
+chgrp "$PANEL_USER" "$PANEL_BACKUP_DIR" 2>/dev/null || true
+chmod 0750 "$PANEL_BACKUP_DIR" 2>/dev/null || true
   chmod 0755 "$STATE_DIR" 2>/dev/null || true
   chmod 0700 "$PANEL_TLS_DIR" 2>/dev/null || true
   chmod 0750 "$PANEL_BACKUP_DIR" 2>/dev/null || true
