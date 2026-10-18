@@ -472,3 +472,22 @@ if hashed in stored:          # ① 读
 
 匿名面、分享一次性、viewer 越权、SSRF、webhook 清空、审计 CSV 上限：**6 项真机验证通过**。
 2FA 恢复码并发：**发现竞态，未修**。traffic 采样口径：仅结构核对。
+---
+
+## 模块 8：服务层（ccd / status_sync / alert_worker / backup_scheduler / selfcheck）—— 进行中
+
+| 核对项 | 结论 | 证据 |
+| --- | --- | --- |
+| 备份失败是否错误推进 `last_run` | **通过**（怀疑被否定） | `backup_scheduler.py` L97-101：只有 `RESULT=ok` 才 `save(last_run=...)`；失败走 L100 `return {"ok": False}`，`last_run` 保持不变 |
+| 备份失败后的重试行为 | **观察（未改）** | 见下 |
+| status_sync 是否覆盖用户刚改的设置 | 未核对 | 下一轮 |
+| alert_worker 冷却的作用域 | 已知：进程内字典，重启后同一条告警会再发一次 | 未在本轮复测 |
+| selfcheck 的检查项 | 未核对 | — |
+
+### 观察：备份持续失败会每分钟重试一次
+
+`_due()` 用"距 `last_run` 是否超过 `interval_hours`"判断，而失败**不写** `last_run`；`_loop()` 每 60 秒跑一次 `_due`。所以一旦备份通道持续失败（例如助手不可用、磁盘满），会**每分钟尝试一次**并各记一条 warning，直到恢复。
+
+这不是数据错误，是日志/资源噪音；如果要改，应加"失败后指数退避"或记录 `last_attempt` 独立于 `last_run`。本轮不改：属于行为改进而非缺陷，且需要真机长时间观察才谈得上验证。
+
+> 顺带确认：这段代码用的是 `helper_client.run_helper("backup", ...)`（socket 激活），不是 `subprocess`——之前那个"必须以 root 运行"的坑没有回归。
