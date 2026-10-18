@@ -10,6 +10,10 @@ import {
   getNetwork,
   getUpgradeStatus,
   listBackups,
+  downloadBackup,
+  getBackupSchedule,
+  saveBackupSchedule,
+  runBackupNow,
   restartPanel,
   startUpgrade,
   updateNetwork,
@@ -210,6 +214,66 @@ async function doRestart() {
 
 // ---- 备份 ----
 const backups = ref([]);
+const schedule = reactive({ enabled: false, interval_hours: 24, keep: 10, last_run: "" });
+const scheduleSaving = ref(false);
+const scheduleRunning = ref(false);
+
+async function loadSchedule() {
+  try {
+    const { data } = await getBackupSchedule();
+    schedule.enabled = Boolean(data?.enabled);
+    schedule.interval_hours = Number(data?.interval_hours ?? 24);
+    schedule.keep = Number(data?.keep ?? 10);
+    schedule.last_run = data?.last_run || "";
+  } catch {
+    /* 无权限或未配置时保持默认值 */
+  }
+}
+
+async function saveSchedule() {
+  scheduleSaving.value = true;
+  try {
+    await saveBackupSchedule({ enabled: schedule.enabled, interval_hours: schedule.interval_hours, keep: schedule.keep });
+    ElMessage.success("已保存定时备份设置");
+    await loadSchedule();
+  } catch (err) {
+    ElMessage.error(err?.response?.data?.detail || "保存失败");
+  } finally {
+    scheduleSaving.value = false;
+  }
+}
+
+async function runScheduleNow() {
+  scheduleRunning.value = true;
+  try {
+    const { data } = await runBackupNow();
+    if (data?.ok) {
+      ElMessage.success("已执行一次备份");
+      await Promise.all([loadBackups(), loadSchedule()]);
+    } else {
+      ElMessage.error(`备份失败：${data?.message || "未知原因"}`);
+    }
+  } catch (err) {
+    ElMessage.error(err?.response?.data?.detail || "执行失败");
+  } finally {
+    scheduleRunning.value = false;
+  }
+}
+
+async function doDownload(row) {
+  const name = String(row.backup || "").split("/").pop();
+  try {
+    const res = await downloadBackup(name);
+    const url = URL.createObjectURL(new Blob([res.data]));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    ElMessage.error(err?.response?.data?.detail || "下载失败");
+  }
+}
 const backingUp = ref(false);
 
 async function loadBackups() {
@@ -402,6 +466,7 @@ function fmtSize(bytes) {
 onMounted(() => {
   load();
   loadBackups();
+  loadSchedule();
   loadNetwork();
 });
 
@@ -567,7 +632,7 @@ async function runSelfcheck() {
       </div>
       <div class="hint">
         备份 CA 私钥、server.conf、.env 与 app.db 四项；文件在
-        /var/backups/ovpn-oneclick 下，权限 0600（含密钥，请勿外传）。
+        /var/backups/ovpn-oneclick 下，权限 0640（属组 ovpnpanel，面板可直接下载；含密钥，请勿外传）。
       </div>
       <el-table v-if="backups.length" :data="backups" size="small" style="margin-top: 12px">
         <el-table-column prop="time" label="时间" min-width="170" />
@@ -576,13 +641,36 @@ async function runSelfcheck() {
         </el-table-column>
         <el-table-column prop="files" label="条目" width="80" />
         <el-table-column prop="backup" label="路径" min-width="240" show-overflow-tooltip />
-        <el-table-column label="操作" width="100" fixed="right">
+        <el-table-column label="操作" width="160" fixed="right">
           <template #default="{ row }">
+            <el-button link @click="doDownload(row)">下载</el-button>
             <el-button type="danger" link @click="doRestore(row)">恢复</el-button>
           </template>
         </el-table-column>
       </el-table>
       <div v-else class="hint" style="margin-top: 8px">还没有通过面板做过备份。</div>
+    </el-card>
+    <el-card class="section" style="margin-top: 16px">
+      <template #header><b>定时备份</b></template>
+      <el-form label-width="150px" style="max-width: 620px">
+        <el-form-item label="启用定时备份">
+          <el-switch v-model="schedule.enabled" />
+        </el-form-item>
+        <el-form-item label="间隔（小时）">
+          <el-input-number v-model="schedule.interval_hours" :min="1" :max="168" />
+        </el-form-item>
+        <el-form-item label="保留份数">
+          <el-input-number v-model="schedule.keep" :min="1" :max="200" />
+          <div class="hint" style="margin-top: 4px">
+            超过这个份数的旧备份会被自动删除（与手动备份共用同一套保留逻辑）
+          </div>
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" :loading="scheduleSaving" @click="saveSchedule">保存</el-button>
+          <el-button :loading="scheduleRunning" @click="runScheduleNow">立即执行一次</el-button>
+          <span class="hint" style="margin-left: 8px">上次执行：{{ schedule.last_run || "从未" }}</span>
+        </el-form-item>
+      </el-form>
     </el-card>
 
     <el-card class="section-card" shadow="never">

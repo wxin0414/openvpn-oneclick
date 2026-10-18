@@ -32,6 +32,11 @@ export const createBackup = () => api.post("/panel/backup");
 
 // 最近的手动备份列表（读助手写的索引，不含密钥内容）
 export const listBackups = () => api.get("/panel/backups");
+// 下载走 blob：接口要求 Bearer 令牌，直接 <a href> 不会带上 Authorization
+export const downloadBackup = (name) => api.get(`/panel/backups/${name}/download`, { responseType: "blob" });
+export const getBackupSchedule = () => api.get("/panel/backup-schedule");
+export const saveBackupSchedule = (payload) => api.put("/panel/backup-schedule", payload);
+export const runBackupNow = () => api.post("/panel/backup-schedule/run-now");
 
 // 从备份恢复：危险操作，必须带 confirm="RESTORE"（后端强制校验）
 export const restoreBackup = (backup, confirm) => api.post("/panel/restore", { backup, confirm });
