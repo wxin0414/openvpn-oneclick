@@ -12,7 +12,7 @@ from app.core.config import get_settings, insecure_settings
 from app.core.logging_config import setup_logging
 from app.db import base  # noqa: F401
 from app.db.session import engine
-from app.services import jobs, status_sync
+from app.services import alert_worker, jobs, status_sync
 from app.services import traffic as traffic_sync
 
 settings = get_settings()
@@ -46,6 +46,8 @@ async def lifespan(app: FastAPI):
     status_sync.start_background_sync()
     # 流量采样：管理接口给的是会话累计字节数，必须定期落库才有历史可看
     traffic_sync.start_background_sampler()
+    # 告警巡检：把自检/证书到期算出来的告警推送到 Webhook（没有它通知永远发不出去）
+    alert_worker.start_background_alert_worker()
     try:
         yield
     finally:
