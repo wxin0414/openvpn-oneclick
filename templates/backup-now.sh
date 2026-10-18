@@ -28,6 +28,14 @@ BACKUP_DIR="${BACKUP_DIR:-/var/backups/ovpn-oneclick}"
 KEEP="${BACKUP_KEEP:-10}"
 KEEP="${KEEP:-10}"
 
+# 保留份数可配：socket 激活的助手拿不到环境变量，面板的定时备份写这个文件来传。
+# 必须放在上面两行默认值之后，否则会被默认值覆盖（第一次就插错了位置）。
+KEEP_FILE="${KEEP_FILE:-/opt/ovpnmanager/backend/data/backup-keep}"
+if [ -r "$KEEP_FILE" ]; then
+  _keep_from_file="$(tr -dc '0-9' < "$KEEP_FILE" 2>/dev/null || true)"
+  [ -n "$_keep_from_file" ] && KEEP="$_keep_from_file"
+fi
+
 # 路径都可以用 panel.conf 覆盖，但都在 root 所有的文件里，调用方影响不到
 if [ -r "$PANEL_CONF" ]; then
   # shellcheck disable=SC1090

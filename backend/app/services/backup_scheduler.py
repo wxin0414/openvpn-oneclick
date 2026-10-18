@@ -75,18 +75,29 @@ def _due(cfg: dict) -> bool:
 def run_backup_once(cfg: dict | None = None) -> dict:
     """跑一次备份，返回 {ok, message}。失败不抛异常。"""
     cfg = cfg or load()
-    env = dict(os.environ)
-    env["KEEP"] = str(cfg.get("keep") or 10)
+
+    # 保留份数写文件给助手读：socket 激活的服务拿不到调用方的环境变量。
     try:
-        result = subprocess.run(
-            [BACKUP_BIN], capture_output=True, text=True, timeout=300, env=env, check=False
-        )
-    except Exception as exc:  # noqa: BLE001 - 超时/不存在都只记日志
-        logger.warning("定时备份执行失败：%s", exc)
+        keep_path = os.path.join(os.path.dirname(CONFIG_PATH), "backup-keep")
+        with open(keep_path, "w", encoding="utf-8") as handle:
+            handle.write(str(cfg.get("keep") or 10))
+    except Exception:  # noqa: BLE001 - 写不了就沿用助手默认值
+        logger.debug("写入保留份数失败", exc_info=True)
+
+    # 必须走 socket 激活的助手通道：直接 subprocess 调会被拒
+    # （实测返回 "必须以 root 运行（通过 socket 激活）"）。
+    from app.services import helper_client
+
+    try:
+        _rc, stdout, stderr = helper_client.run_helper("backup", BACKUP_BIN, 300)
+    except helper_client.HelperUnavailable as exc:
+        logger.warning("定时备份通道不可用：%s", exc)
         return {"ok": False, "message": str(exc)}
-    if result.returncode != 0:
-        logger.warning("定时备份返回 %s：%s", result.returncode, (result.stdout or "")[-200:])
-        return {"ok": False, "message": (result.stdout or result.stderr or "").strip()[-200:]}
+
+    if "RESULT=ok" not in (stdout or ""):
+        reason = (stderr or stdout or "").strip()[-200:]
+        logger.warning("定时备份失败：%s", reason)
+        return {"ok": False, "message": reason}
     save(last_run=datetime.now().isoformat(timespec="seconds"))
     return {"ok": True, "message": "已备份"}
 

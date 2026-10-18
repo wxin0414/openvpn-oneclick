@@ -496,7 +496,7 @@ def create_backup(db: Session = Depends(deps.get_db), user=Depends(ensure_superu
         "backup": path,
         "size": int(parsed.get("SIZE") or 0),
         "files": int(parsed.get("FILES") or 0),
-        "note": "备份含 CA 私钥与 SECRET_KEY，文件权限 0600，请勿外传。",
+        "note": "备份含 CA 私钥与 SECRET_KEY，文件权限 0640（属组 ovpnpanel，面板可下载），请勿外传。",
     }
 
 
