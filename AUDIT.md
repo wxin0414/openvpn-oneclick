@@ -1092,3 +1092,15 @@ README.md / README.en.md 的 Docker 小节与"三条限制"
 待验证项，也不再是能力缺口。版本升到 **2.1.0**（破坏性变更）。
 
 后端断言仍为 252 项全通过（守卫移除后行为回到"仅单机部署"）。
+### 移除 Docker 后的 CI 验证（通过）
+
+```text
+CI #97  b5d5b64  completed  success      ← 删除 docker/、compose、OVPN_DOCKER 守卫后
+CI #96  6a0116e  completed  success
+本地 6 项跨组件检查全部 exit=0：
+  check_versions / check_apply_contract / test_block_parity /
+  check_ranges / check_templates / check_env_contract
+```
+
+结论：删除容器化部署没有破坏安装器断言、契约检查或版本一致性。
+版本 **2.1.0** 已部署到 `110.42.102.239`（`/api/health/version` 返回 2.1.0）。
