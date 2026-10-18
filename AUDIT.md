@@ -220,3 +220,23 @@ server_conf_writer.py L79 的注释要求"必须与 templates/apply-validate.sh 
 
 - **TLS 从 off 切到 selfsigned** 的完整真机流程本轮没跑（会重建 nginx 配置，需要窗口），只有代码证据
 - 升级失败能否退回旧版本：只看到 `self-update.sh` 会返回 `FROM/TO/LOG`，没读回滚逻辑，也没实测
+### 发现问题（未修）：在线升级没有回滚
+
+**证据（代码）**：
+
+- `install.sh` L2174-2205 `do_update`：`self_update` → `backup_current` → `deploy_panel` → `self_check` → `save_state`，**全程没有失败回滚**
+- `backup_current` L2105-2118：只备份 `backend/.env` 与 `backend/data`（并保留最近 5 份），**不备份面板代码**、`/etc/nginx/conf.d/ovpnmanager.conf`、`/usr/local/lib/ovpnmanager/*` 模板
+- `upgrade-worker.sh` L45/L66：安装器返回非 0 时只 `write_state failed`，不做恢复
+
+**影响**：升级在中途失败（例如 `deploy_panel` 写了一半、`self_check` 不通过）时，系统停留在"代码已换、版本号与状态文件未更新、服务可能起不来"的中间态。此时 `backup_current` 里那份备份**不足以恢复旧版本**——它只有数据，没有代码。用户只能重跑安装器。
+
+**建议修法（下一轮实现并真机验证）**：
+1. `do_update` 开头把当前 `/usr/local/lib/ovpnmanager`、`/etc/nginx/conf.d/ovpnmanager.conf`、面板 tarball 解出的目录打成一个 `code-<stamp>.tar.gz`
+2. 用 `trap ... ERR` 或显式检查，在 `deploy_panel`/`self_check` 失败时把代码目录还原并重启面板，状态写 `failed_rolled_back`
+3. 至少要在 `INSTALLED_VERSION` 与真实运行版本不一致时给出明确提示，而不是留一个"看起来升级成功"的半成品
+
+**为什么本轮没修**：这是改升级主链路，必须在真机上跑一次"故意让升级失败"的验证（例如给个坏 tarball），才能在下一轮证明回滚真的生效。半截的升级回滚比没有更危险。
+
+### 模块 6 结论
+
+TLS 相关全部通过（含关不掉的锁死修复）；恢复前有 PRE_BACKUP；**升级失败无回滚是唯一发现的问题，已记录未修**。备份/网络两项本轮只做了代码阅读，未真机验证。
