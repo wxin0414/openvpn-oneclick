@@ -112,12 +112,12 @@ def _apply_expiry(db, client) -> bool:
     """
     from datetime import datetime
 
-    expires_at = getattr(client, "expires_at", None)
     if client.disabled:
         return True
-    if not expires_at:
-        return False
-    if expires_at > datetime.now():
+    expires_at = getattr(client, "expires_at", None)
+    expired = bool(expires_at) and expires_at <= datetime.now()
+    over_quota = False if expired else _quota_exceeded(db, client)
+    if not (expired or over_quota):
         return False
 
     client.disabled = True
@@ -137,3 +137,40 @@ def _apply_expiry(db, client) -> bool:
     except Exception:  # noqa: BLE001 - 不在线时忽略
         pass
     return True
+
+def _quota_exceeded(db, client) -> bool:
+    """客户端累计流量是否已超过 ``quota_mb``。
+
+    口径：``traffic_samples`` 存的是管理接口给的**会话累计值**，客户端断开重连后计数会
+    从 0 重新开始，所以"累计用量"不能用最后一条样本，而要按时间累加**正增量**
+    （计数回退时把当前值当作新一轮的起点）。这与流量图表的口径一致。
+
+    只有设了 quota_mb 的客户端才会查库，避免给所有客户端都加一次全表扫描。
+    """
+    quota_mb = getattr(client, "quota_mb", None)
+    if not quota_mb:
+        return False
+    try:
+        from app.models.traffic import TrafficSample
+
+        rows = (
+            db.query(TrafficSample.bytes_received, TrafficSample.bytes_sent)
+            .filter(TrafficSample.common_name == client.common_name)
+            .order_by(TrafficSample.sampled_at.asc(), TrafficSample.id.asc())
+            .all()
+        )
+    except Exception:  # noqa: BLE001 - 查不到就当作未超额，不能因此误踢客户端
+        return False
+
+    used = 0
+    prev_rx = prev_tx = 0
+    for rx, tx in rows:
+        rx = int(rx or 0)
+        tx = int(tx or 0)
+        if rx >= prev_rx and tx >= prev_tx:
+            used += (rx - prev_rx) + (tx - prev_tx)
+        else:
+            # 会话重连：计数从头开始，这一条就是新一轮的首个增量
+            used += rx + tx
+        prev_rx, prev_tx = rx, tx
+    return used >= int(quota_mb) * 1024 * 1024
