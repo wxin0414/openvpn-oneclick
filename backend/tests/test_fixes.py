@@ -1581,6 +1581,69 @@ def main() -> int:
         )
 
     # ------------------------------------------------------------------ #
+    # S. 安全路径回归（审计模块 13 补的自动化保护）
+    #    这些路由此前只有真机手工验证，改动后 CI 不会红。
+    # ------------------------------------------------------------------ #
+    s_backup_traversal = client.get(
+        "/api/panel/backups/..%2F..%2Fetc%2Fpasswd/download", headers=headers
+    )
+    check(
+        "S1 备份下载拒绝路径穿越（不得 200）",
+        s_backup_traversal.status_code != 200,
+        str(s_backup_traversal.status_code),
+    )
+    check(
+        "S2 备份下载对非法名返回 400/404",
+        s_backup_traversal.status_code in (400, 404),
+        str(s_backup_traversal.status_code),
+    )
+
+    s_restore_no_confirm = client.post("/api/settings/history/anything/restore", headers=headers)
+    expect("S3 历史回滚缺少 confirm 返回 400", s_restore_no_confirm.status_code, 400)
+    check(
+        "S4 历史回滚提示里说明要带 confirm=RESTORE",
+        "RESTORE" in str(s_restore_no_confirm.json().get("detail", "")),
+        str(s_restore_no_confirm.json()),
+    )
+
+    s_hist_traversal = client.get("/api/settings/history/..%2F..%2Fetc%2Fpasswd", headers=headers)
+    check(
+        "S5 历史版本读取拒绝路径穿越（不得 200）",
+        s_hist_traversal.status_code != 200,
+        str(s_hist_traversal.status_code),
+    )
+
+    s_share_missing = client.post("/api/clients/999999/share", headers=headers)
+    expect("S6 给不存在的客户端建分享返回 404", s_share_missing.status_code, 404)
+
+    s_share_bogus = client.get("/share/definitely-not-a-real-token")
+    expect("S7 伪造分享令牌返回 410", s_share_bogus.status_code, 410)
+
+    client.put(
+        "/api/notify/",
+        headers=headers,
+        json={"enabled": True, "webhook_url": "http://127.0.0.1:7505/x"},
+    )
+    s_notify = client.post("/api/notify/test", headers=headers)
+    expect("S8 通知测试对回环地址放行前先拒绝请求体", s_notify.status_code, 200)
+    s_reason = str(s_notify.json().get("reason", ""))
+    check(
+        "S9 回环地址被 SSRF 防线拦下",
+        s_notify.json().get("ok") is False and ("内网" in s_reason or "本机" in s_reason),
+        s_reason[:60],
+    )
+    client.put(
+        "/api/notify/",
+        headers=headers,
+        json={"enabled": False, "webhook_url": ""},
+    )
+
+    s_anon_version = client.get("/api/health/version")
+    expect("S10 版本接口匿名可读（健康检查依赖）", s_anon_version.status_code, 200)
+    s_anon_clients = client.get("/api/clients/")
+    expect("S11 客户端列表匿名返回 401", s_anon_clients.status_code, 401)
+
+    # ------------------------------------------------------------------ #
     print("\n" + "=" * 66)
     print(f"通过 {len(PASSED)} 项，失败 {len(FAILED)} 项")
     if FAILED:
