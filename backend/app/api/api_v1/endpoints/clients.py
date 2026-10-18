@@ -284,12 +284,18 @@ def update_client(client_id: int, client_in: ClientUpdate, db: Session = Depends
     if not db_obj:
         raise HTTPException(status_code=404, detail="Client not found")
     updated = crud.client.update(db, db_obj=db_obj, obj_in=client_in)
-    # optional: write CCD when fixed_ip/routes provided
-    if client_in.fixed_ip is not None or client_in.routes is not None:
+    # 只要请求里**出现**了 fixed_ip / routes 就要重写 CCD，包括把它清空（显式传 null）。
+    # 原来判的是 `is not None`：传 null 清空时会跳过 CCD 写入，旧文件里那条
+    # ifconfig-push 就留在原地，客户端下次连接照样拿到原来的固定 IP——
+    # 界面上"已清空"，实际上没清空。改为看 model_fields_set（是否带了这个字段）。
+    touched = {"fixed_ip", "routes"} & set(client_in.model_fields_set)
+    if touched:
         routes = []
-        if client_in.routes:
-            routes = [r.strip() for r in client_in.routes.split(",") if r.strip()]
-        ccd_service.write_ccd(updated, fixed_ip=client_in.fixed_ip, routes=routes, disabled=bool(updated.disabled))
+        if updated.routes:
+            routes = [r.strip() for r in updated.routes.split(",") if r.strip()]
+        ccd_service.write_ccd(
+            updated, fixed_ip=updated.fixed_ip, routes=routes, disabled=bool(updated.disabled)
+        )
 
     # 禁用/启用：必须落到 CCD（写 `disable` 行）才真的挡得住连接；
     # 只改数据库字段的话客户端照样能连，属于"看起来禁用了其实没禁"。

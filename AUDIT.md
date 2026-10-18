@@ -363,3 +363,39 @@ GET /api/notify/ -> webhook_url 仍是 169.254.169.254…                       
 **修法**：用 `payload.model_fields_set` 区分"没传这个字段"与"传了空值"，显式 null/空串一律写成 `""`。
 
 验证：241 项测试通过。**真机复验待下一轮**（已部署到服务器的那份配置里仍留着那个内网地址，虽然 `enabled=false`，下轮会清掉并复验）。
+### 全项目扫描"清不掉"这一类（`exclude_none` / 合并状态）
+
+递归扫描 `backend/app` 全部 .py：
+
+```text
+exclude_none:
+  notify.py:59   data = payload.model_dump(exclude_none=True)        ← 已修（model_fields_set）
+  panel.py:824   backup_scheduler.save(**payload.model_dump(exclude_none=True))
+model_dump:
+  clients.py:201 ClientCreate(**client_in.model_dump(exclude={"passphrase"}))
+  base.py:26/34  exclude_unset=True                                   ← 正确：显式 null 会被应用
+  user.py:31     exclude_unset=True                                   ← 正确
+```
+
+结论：
+
+- `panel.py:824`（定时备份配置）虽然同样吞 null，但 `enabled/interval_hours/keep` 都不可空且带默认值，
+  `enabled=false` 能正常传进去，**无实际影响**（记为"同模式但无害"）
+- 客户端字段走 `exclude_unset`，显式 null **能**被清掉
+
+### 顺着这条线发现的真问题（已修）：清空固定 IP 不重写 CCD
+
+`clients.py` 原来的判断是 `if client_in.fixed_ip is not None or client_in.routes is not None`。
+通过 API 显式传 `null` 清空固定 IP 时，这个条件为假 → **跳过 CCD 写入** → 文件里那条
+`ifconfig-push` 留在原地 → 客户端下次连接照样拿到原来的固定 IP。界面上显示已清空，实际没清。
+
+改为看 `model_fields_set`（请求里是否带了这个字段），并用 `updated` 的当前值重写 CCD。241 项测试通过。
+
+> 注：这条用界面操作不会触发（界面清空后传的是空串 `""`，不是 null），是 API 层的边界。
+> 但它属于同一类"合并状态吞掉用户意图"，所以一并修掉。
+
+### 又一次工具失误（记录）
+
+我第一次扫 `exclude_none` 用了 `Select-String -Path "$repo\backend\app\**\*.py"`，PowerShell 的
+`**` 在这里**不会递归**，于是输出为空、我差点写成"全项目只有一处"。改用
+`Get-ChildItem -Recurse | Select-String` 才拿到真实结果（两处）。结论：**"grep 没结果"在这套环境里不能直接当结论。**
