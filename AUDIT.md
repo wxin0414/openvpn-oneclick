@@ -992,3 +992,33 @@ UPDATE_RC=1
 "默认 raw 源不可达，某些取包路径会失败，失败时的报错曾误导为包损坏"。已在这一条里更正。
 
 **未完成**：`fetch_panel` 到底走哪条分支、什么条件下失败，仍不清楚；错误提示改进也还需一次真实触发验证。
+### 取包逻辑已读清，并更正上一轮的结论
+
+`fetch_panel`（install.sh L1177-1212）只有两条分支：
+
+```text
+1) 若 ${SCRIPT_DIR}/${ASSET_PATH} 存在 -> 直接用它（无条件优先）
+2) 否则 curl 下载 PANEL_TARBALL_URL；失败即 die（带详细原因与三种替代做法），
+   随后 tar -tzf 校验，损坏则 die
+```
+
+**没有"静默回退到缓存"的分支**，所以我上一轮"回退到旧残留包导致结构异常"的推断是错的。
+
+进一步核对：
+
+- 服务器 `state.conf` 只有 `REPO_OWNER/REPO_NAME/REPO_BRANCH`，`PANEL_TARBALL_URL` 用默认值
+  `https://raw.githubusercontent.com/wxin0414/openvpn-oneclick/main/panel/ovpnmanager-panel.tar.gz`
+- 上一次**成功**的升级日志（`/tmp/u11.log`）第 22 行就是这条 URL 的下载，且没有出现
+  "使用脚本同级目录"分支
+- 之前那次"结构异常"发生在 `bash /usr/local/lib/ovpnmanager/install.sh --update` 时，
+  `SCRIPT_DIR` 是 `/usr/local/lib/ovpnmanager`，本地分支指向空目录 → 走下载 → 下载/解包异常
+
+**结论更正**：`raw.githubusercontent.com` 在这台机器上是**时通时不通**（我测过 TCP 443 超时、
+`-4` 也超时；但真实下载后来又成功过）。准确表述是"默认源不稳定：可达时升级正常，不可达时
+报错"，而不是"必然失败"或"静默用缓存"。**具体为什么不稳定，我没有查出根因**，不再猜。
+
+### 由此产生的真实可用性问题
+
+在这台机器上，**在线升级是否成功取决于当时网络能否访问 raw.githubusercontent.com**；
+失败时虽然提示已经比较详细（含三种替代做法），但普通用户很难自行判断该选哪种。
+可考虑（未做）：在 `--check-update` 与 `--update` 开头做一次 3 秒连通性探测，把结论写进输出。
