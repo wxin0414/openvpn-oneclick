@@ -134,6 +134,7 @@ def list_clients(
     page_size: int = Query(10, ge=1, le=200),
     name: str | None = Query(default=None),
     status: str | None = Query(default=None),
+    group: str | None = Query(default=None, description='按分组筛选；__none__ 表示未分组'),
     db: Session = Depends(deps.get_db),
 ) -> ClientPage:
     """查询客户端列表（分页，只读）。
@@ -152,6 +153,11 @@ def list_clients(
     query = db.query(crud.client.model)
     if name:
         query = query.filter(crud.client.model.name.ilike(f"%{name}%"))
+    if group:
+        if group == "__none__":
+            query = query.filter(crud.client.model.group_name.is_(None))
+        else:
+            query = query.filter(crud.client.model.group_name == group)
     if status:
         normalized_status = status.lower()
         if normalized_status in {"online", "offline", "disabled"}:
@@ -518,3 +524,55 @@ def update_ccd(client_id: int, client_in: ClientUpdate, db: Session = Depends(de
     updated = crud.client.update(db, db_obj=client, obj_in=client_in)
     ccd_service.write_ccd(updated, fixed_ip=client_in.fixed_ip, routes=routes, disabled=bool(updated.disabled))
     return updated
+
+@router.get("/export", summary="导出客户端清单 CSV（可按分组）")
+def export_clients(
+    group: str | None = Query(default=None, description="按分组筛选；__none__ 表示未分组"),
+    db: Session = Depends(deps.get_db),
+):
+    """导出客户端清单为 CSV。
+
+    说明：这里导出的是**清单**（名称/CN/分组/固定 IP/路由/到期/配额/状态），
+    不是 .ovpn 打包。.ovpn 在 root 生成的导出目录里，面板要读它就得像备份那样
+    单独放开目录权限，留到下一步做——先交付一个不依赖权限、能立刻用的导出。
+    """
+    import csv
+    import io
+
+    from fastapi.responses import StreamingResponse
+
+    model = crud.client.model
+    query = db.query(model)
+    if group:
+        if group == "__none__":
+            query = query.filter(model.group_name.is_(None))
+        else:
+            query = query.filter(model.group_name == group)
+    rows = query.order_by(model.id.asc()).all()
+
+    columns = ["id", "name", "common_name", "group_name", "fixed_ip", "routes",
+               "expires_at", "quota_mb", "disabled", "status", "created_at"]
+
+    def generate():
+        buffer = io.StringIO()
+        writer = csv.writer(buffer)
+        writer.writerow(columns)
+        yield "\ufeff" + buffer.getvalue()
+        buffer.seek(0)
+        buffer.truncate(0)
+        for row in rows:
+            values = []
+            for column in columns:
+                value = getattr(row, column, "")
+                values.append("" if value is None else str(value))
+            writer.writerow(values)
+            yield buffer.getvalue()
+            buffer.seek(0)
+            buffer.truncate(0)
+
+    name = "clients-all.csv" if not group else f"clients-{group.strip('_') or 'none'}.csv"
+    return StreamingResponse(
+        generate(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )

@@ -4,6 +4,30 @@
 
 关于版本号：仓库历史中 `VERSION.txt` 由 `1.2.2` 直接跳到 `1.2.4`，没有 1.2.3 的独立提交，因此这里没有 `[1.2.3]` 条目。1.2.2 与 1.2.3 都因下列安装缺陷无法在 Debian 12 上完成安装，修复集中在 1.2.4。
 
+## [1.8.1] — 2026-10-18
+
+分组筛选与按组导出（第 7 项，后端部分）。
+
+- `GET /api/clients/?group=xxx`：按分组过滤；`?group=__none__` 查未分组
+- `GET /api/clients/export?group=xxx`：导出该组客户端**清单** CSV（带 UTF-8 BOM）
+- 导出的是清单（id/名称/CN/分组/固定IP/路由/到期/配额/状态），**不是 .ovpn 打包**：
+  `.ovpn` 在 root 生成的导出目录里，面板要读它得像备份那样单独放开目录权限，
+  留到下一步做——先交付一个不依赖权限、立刻可用的导出
+
+### 真机验证（110.42.102.239）
+
+```text
+建两个客户端：teamA / teamB
+group=teamA -> total=1 names=['ga...'] groups=['teamA']
+group=teamB -> total=1 names=['gb...'] groups=['teamB']
+export?group=teamA -> HTTP 200，2 行 178 字节，表头带 BOM，
+                      数据 id,name,common_name,group_name,...=teamA
+清理：DELETE 202 两条，剩余 0，三服务 active
+```
+
+### 仍未完成（同一项内）
+
+面板的分组输入、列表列、筛选下拉与导出按钮。
 ## [1.8.0] — 2026-10-18
 
 暗色模式 + 英文导航（第 10 项，部分完成，范围如实标注）。
