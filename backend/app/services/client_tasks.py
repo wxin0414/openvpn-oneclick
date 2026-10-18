@@ -87,18 +87,31 @@ def create_client_task(client_id: int, passphrase: str | None, actor: str) -> di
             return {"client_id": client_id, "common_name": client.common_name, "ovpn": ovpn}
     except Exception:
         logger.exception("创建客户端任务失败，回滚记录 client_id=%s", client_id)
-        _rollback_client(client_id)
+        _rollback_client(client_id, passphrase)
         raise
 
 
-def _rollback_client(client_id: int) -> None:
-    """删除创建失败的客户端记录与半成品文件。"""
+def _rollback_client(client_id: int, passphrase: str | None = None) -> None:
+    """删除创建失败的客户端记录、半成品文件，并吊销已经签出的证书。
+
+    签发成功但导出 .ovpn 失败时，证书已经在 PKI 里生效。如果回滚只删记录与文件，
+    那张证书会一直 valid、CRL 也不更新——和"删除客户端不吊销"是同一个洞。
+    这里先吊销再删记录（此时 ORM 对象还挂着会话），失败只告警：
+    证书可能压根没签发成功，那不是错误。
+    """
     try:
         with SessionLocal() as db:
-            removed = crud.client.remove(db, client_id)
-            if removed is not None:
-                cleanup_client_files(removed.common_name)
-                logger.info("已回滚创建失败的客户端 cn=%s", removed.common_name)
+            client = crud.client.get(db, client_id)
+            if client is None:
+                return
+            common_name = client.common_name
+            try:
+                certs.revoke_client_cert(db, client, passphrase=passphrase)
+            except Exception:  # noqa: BLE001
+                logger.warning("回滚时吊销证书失败 cn=%s（可能证书未签发成功）", common_name, exc_info=True)
+            crud.client.remove(db, client_id)
+            cleanup_client_files(common_name)
+            logger.info("已回滚创建失败的客户端 cn=%s", common_name)
     except Exception:  # noqa: BLE001 - 回滚失败只记录，原始错误更重要
         logger.exception("回滚客户端记录失败 client_id=%s", client_id)
 
