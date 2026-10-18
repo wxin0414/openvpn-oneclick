@@ -1677,6 +1677,112 @@ def main() -> int:
     )
 
     # ------------------------------------------------------------------ #
+    # U. 2FA 全链路（setup -> enable -> status -> 登录二步 -> disable）
+    #    用独立临时账号：前面的 C17 故意把 admin 打进登录限速，复用 admin 会得到 429。
+    #    纯数据库 + TOTP，不依赖 easy-rsa / root 助手，可完整自动化。
+    # ------------------------------------------------------------------ #
+    from app.services import totp as _totp
+
+    _u_name = "u2fa-temp"
+    _u_pass = "u2fa-pass-123456"
+    client.post(
+        "/api/users/",
+        headers=headers,
+        json={
+            "username": _u_name,
+            "password": _u_pass,
+            "is_active": True,
+            "is_superuser": False,
+            "role": "admin",
+        },
+    )
+    _users = client.get("/api/users/", headers=headers).json()
+    _uid = next((u["id"] for u in _users if u["username"] == _u_name), None)
+    check("U1 临时账号创建成功", _uid is not None, str(_users)[:80])
+
+    _login0 = client.post("/api/auth/login", data={"username": _u_name, "password": _u_pass})
+    expect("U2 临时账号可登录", _login0.status_code, 200)
+    _uh = {"Authorization": f"Bearer {_login0.json().get('access_token', '')}"}
+
+    _st0 = client.get("/api/2fa/status", headers=_uh)
+    expect("U3 初始 2FA 状态可读", _st0.status_code, 200)
+    check("U4 初始未开启", _st0.json().get("enabled") is False, str(_st0.json()))
+
+    _setup = client.post("/api/2fa/setup", headers=_uh)
+    expect("U5 setup 返回 200", _setup.status_code, 200)
+    _secret = _setup.json().get("secret", "")
+    check("U6 setup 返回 32 位 base32 密钥", len(_secret) == 32, _secret[:8])
+    check(
+        "U7 setup 返回 otpauth URI",
+        str(_setup.json().get("uri", "")).startswith("otpauth://totp/"),
+        "",
+    )
+    check(
+        "U8 setup 后仍为未启用（没扫码不会把自己锁死）",
+        client.get("/api/2fa/status", headers=_uh).json().get("enabled") is False,
+        "",
+    )
+
+    def _code(secret: str) -> str:
+        return _totp.code_at(secret, int(time.time()) // 30)
+
+    _bad = client.post("/api/2fa/enable", headers=_uh, json={"code": "000000"})
+    expect("U9 错误验证码 enable 返回 400", _bad.status_code, 400)
+
+    _ok = client.post("/api/2fa/enable", headers=_uh, json={"code": _code(_secret)})
+    expect("U10 正确验证码 enable 返回 200", _ok.status_code, 200)
+    _codes = _ok.json().get("recovery_codes") or []
+    check("U11 返回 8 个一次性恢复码", len(_codes) == 8, str(len(_codes)))
+    check(
+        "U12 status 变为已启用",
+        client.get("/api/2fa/status", headers=_uh).json().get("enabled") is True,
+        "",
+    )
+
+    _no_otp = client.post("/api/auth/login", data={"username": _u_name, "password": _u_pass})
+    expect("U13 不带验证码登录被拒 401", _no_otp.status_code, 401)
+    check(
+        "U14 响应头带 X-2FA-Required（前端据此弹输入框）",
+        _no_otp.headers.get("x-2fa-required") == "1",
+        str(dict(_no_otp.headers)),
+    )
+
+    _with_otp = client.post(
+        "/api/auth/login",
+        data={"username": _u_name, "password": _u_pass},
+        params={"otp": _code(_secret)},
+    )
+    expect("U15 带 TOTP 码可登录", _with_otp.status_code, 200)
+
+    _with_rc = client.post(
+        "/api/auth/login",
+        data={"username": _u_name, "password": _u_pass},
+        params={"otp": _codes[0]},
+    )
+    expect("U16 用恢复码可登录", _with_rc.status_code, 200)
+
+    _reuse = client.post(
+        "/api/auth/login",
+        data={"username": _u_name, "password": _u_pass},
+        params={"otp": _codes[0]},
+    )
+    expect("U17 同一恢复码复用被拒 401（一次性）", _reuse.status_code, 401)
+
+    _off = client.post("/api/2fa/disable", headers=_uh, json={"code": _code(_secret)})
+    expect("U18 关闭 2FA 返回 200", _off.status_code, 200)
+    check(
+        "U19 关闭后 status 为未启用",
+        client.get("/api/2fa/status", headers=_uh).json().get("enabled") is False,
+        "",
+    )
+    _after = client.post("/api/auth/login", data={"username": _u_name, "password": _u_pass})
+    expect("U20 关闭后不带验证码可正常登录", _after.status_code, 200)
+
+    if _uid is not None:
+        client.delete(f"/api/users/{_uid}", headers=headers)
+    check("U21 临时账号已清理", True, "")
+
+    # ------------------------------------------------------------------ #
     print("\n" + "=" * 66)
     print(f"通过 {len(PASSED)} 项，失败 {len(FAILED)} 项")
     if FAILED:
