@@ -416,3 +416,17 @@ model_dump:
 ### 模块 7 剩余（未核对）
 
 2FA 恢复码并发消费的原子性、traffic 采样口径与配额计算、审计 CSV 导出的 5 万行上限是否真的生效。
+### 真机复验：清空固定 IP 后 CCD 里那行真的消失
+
+用临时客户端（不动用户已有的 client-01）：
+
+```text
+建 cc1792301965，fixed_ip=10.8.44.250（202，id=3）
+CCD 内容：ifconfig-push 10.8.44.250 255.255.255.0
+PATCH {"fixed_ip": null} -> 200
+CCD 内容：（空）        ifconfig-push 行数 = 0
+API 回报 fixed_ip = None
+清理：DELETE 202，剩余客户端 1（原有的 client-01）
+```
+
+修复前后对比：修复前这一步会跳过 CCD 重写，`ifconfig-push 10.8.44.250` 会**留在文件里**，客户端下次连接仍拿到旧 IP，而界面显示已清空。现在行为一致。
