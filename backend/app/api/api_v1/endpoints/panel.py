@@ -803,3 +803,29 @@ def download_backup(name: str):
     return FileResponse(
         str(target), media_type="application/gzip", filename=name
     )
+
+class BackupSchedulePayload(BaseModel):
+    enabled: bool | None = None
+    interval_hours: int | None = Field(default=None, ge=1, le=168)
+    keep: int | None = Field(default=None, ge=1, le=200)
+
+
+@router.get("/backup-schedule", dependencies=[Depends(ensure_superuser)])
+def read_backup_schedule() -> dict:
+    from app.services import backup_scheduler
+
+    return backup_scheduler.load()
+
+
+@router.put("/backup-schedule", dependencies=[Depends(ensure_superuser)])
+def update_backup_schedule(payload: BackupSchedulePayload) -> dict:
+    from app.services import backup_scheduler
+
+    return backup_scheduler.save(**payload.model_dump(exclude_none=True))
+
+
+@router.post("/backup-schedule/run-now", dependencies=[Depends(ensure_superuser)])
+def run_backup_schedule_now() -> dict:
+    from app.services import backup_scheduler
+
+    return backup_scheduler.run_backup_once()

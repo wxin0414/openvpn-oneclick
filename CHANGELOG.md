@@ -4,6 +4,25 @@
 
 关于版本号：仓库历史中 `VERSION.txt` 由 `1.2.2` 直接跳到 `1.2.4`，没有 1.2.3 的独立提交，因此这里没有 `[1.2.3]` 条目。1.2.2 与 1.2.3 都因下列安装缺陷无法在 Debian 12 上完成安装，修复集中在 1.2.4。
 
+## [1.7.0] — 2026-10-18
+
+定时备份与保留策略可配（第 8 项第二部分）。
+
+- `services/backup_scheduler.py`：每 60 秒检查一次是否到期，到期就调用与「立即备份」
+  **同一个** root 助手 `backup-now`，通过环境变量 `KEEP` 传保留份数——保留策略只有
+  一套实现，不会出现手动和定时行为不一致
+- 配置存 `data/backup-schedule.json`（`enabled` / `interval_hours` 1~168 / `keep` 1~200 /
+  `last_run`）。只有三个字段，不值得为它加一次表结构迁移
+- 接口：`GET/PUT /api/panel/backup-schedule`、`POST /api/panel/backup-schedule/run-now`，
+  均限超级管理员
+- 线程崩溃不影响面板：循环体整体包 try，失败只记日志；`BACKUP_SCHEDULER_ENABLED=false` 可关
+- 顺手修掉一处过时文案：备份接口曾提示「文件权限 0600」，实际已改为 `0640`（属组 ovpnpanel）
+
+### 本地验证
+
+```text
+路由 56 条；/api/panel/backup-schedule 与 /run-now 均已注册；后端 239 断言通过
+```
 ## [1.6.3] — 2026-10-18
 
 备份下载（第 8 项第一部分）。
