@@ -9,6 +9,7 @@ import OpenVPNControlView from "../views/OpenVPNControlView.vue";
 import SettingsView from "../views/SettingsView.vue";
 import PanelSettingsView from "../views/PanelSettingsView.vue";
 import UsersView from "../views/UsersView.vue";
+import NotifyView from "../views/NotifyView.vue";
 
 const routes = [
   { path: "/login", name: "login", component: LoginView },
@@ -18,6 +19,7 @@ const routes = [
   { path: "/settings", name: "settings", component: SettingsView },
   { path: "/panel", name: "panel-settings", component: PanelSettingsView },
   { path: "/users", name: "users", component: UsersView },
+  { path: "/notify", name: "notify", component: NotifyView },
   { path: "/logs", name: "logs", component: LogsView },
   { path: "/openvpn", name: "openvpn", component: OpenVPNControlView },
 ];

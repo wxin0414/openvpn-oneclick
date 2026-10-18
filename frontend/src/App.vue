@@ -123,6 +123,7 @@ const menuItems = [
   // { path: "/openvpn", label: "OpenVPN 控制", icon: "ri-shield-keyhole-line" },
   { path: "/logs", label: "日志审计", icon: "ri-file-list-3-line" },
   { path: "/users", label: "用户管理", icon: "ri-user-settings-line" },
+  { path: "/notify", label: "通知设置", icon: "ri-notification-3-line" },
 ];
 
 const pageTitles = {
