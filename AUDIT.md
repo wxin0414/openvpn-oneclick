@@ -491,3 +491,21 @@ if hashed in stored:          # ① 读
 这不是数据错误，是日志/资源噪音；如果要改，应加"失败后指数退避"或记录 `last_attempt` 独立于 `last_run`。本轮不改：属于行为改进而非缺陷，且需要真机长时间观察才谈得上验证。
 
 > 顺带确认：这段代码用的是 `helper_client.run_helper("backup", ...)`（socket 激活），不是 `subprocess`——之前那个"必须以 root 运行"的坑没有回归。
+### status_sync 核对（真读代码）
+
+| 核对项 | 结论 | 证据 |
+| --- | --- | --- |
+| 会不会覆盖用户改的字段 | **通过** | `sync_once` L42-66 只写 `client.status`；`_apply_expiry` 只把 `disabled` 置 True。`fixed_ip / routes / group_name / quota_mb / expires_at` 一概不碰 |
+| 状态判定顺序 | 通过 | 到期/超额 → disabled；手动禁用 → disabled；在线 → online；否则 offline（L44-51） |
+| 审计 | 通过 | 上线记 `client_login`、掉线记 `client_logout`（L59-62），不写无变化的记录（L53-54 先比较） |
+| 只在有变化时提交 | 通过 | L64-65 `if changed: db.commit()` |
+
+### 观察（未改）：被自动禁用的客户端，条件解除后不会自动恢复
+
+`_apply_expiry` 只在"到期或超额"时把 `disabled` 置 **True**（L123），**没有任何路径把它置回 False**。
+
+后果：一个客户端因到期（或超额）被自动禁用后，管理员把 `expires_at` 延长、或把 `quota_mb` 调大，它**仍然是禁用状态**——面板列表显示"禁用"，连接照样被 CCD 里的 `disable` 挡住。用户必须再手动点一次「启用」。
+
+**这算不算 bug 有争议**：不自动恢复是更安全的选择（避免管理员以为延期了但其它条件没满足就又放行）；但界面上没有任何提示说"你还需要点一下启用"，实际很容易让人以为延期失败。
+
+**本轮不改**：改它会改变行为语义（自动放行），需要配套 UI 提示与真机验证；留作产品决策项，而不是当 bug 直接改掉。
