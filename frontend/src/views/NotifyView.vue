@@ -8,9 +8,9 @@
         </p>
       </div>
       <div class="page-header__actions">
-        <el-button @click="load">刷新</el-button>
-        <el-button :loading="testing" @click="sendTest">发送测试</el-button>
-        <el-button type="primary" :loading="saving" @click="save">保存</el-button>
+        <el-button @click="load">{{ $t("刷新") }}</el-button>
+        <el-button :loading="testing" @click="sendTest">{{ $t("发送测试") }}</el-button>
+        <el-button type="primary" :loading="saving" @click="save">{{ $t("保存") }}</el-button>
       </div>
     </div>
 

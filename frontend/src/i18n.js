@@ -83,6 +83,21 @@ const EN = {
   一键诊断: "Diagnostics",
   在线升级: "Online upgrade",
   管理员凭据: "Admin credentials",
+
+  // 用户管理 / 2FA / 日志 / OpenVPN 控制
+  新增用户: "Add user",
+  重置口令: "Reset password",
+  停用: "Deactivate",
+  生成密钥: "Generate secret",
+  确认启用: "Confirm and enable",
+  修改我的口令: "Change my password",
+  保存并重新登录: "Save and sign out",
+  查询日志: "Search logs",
+  导出审计: "Export audit",
+  停止: "Stop",
+  启动: "Start",
+  重启: "Restart",
+  添加通知: "Add notification",
 };
 
 export function t(text) {

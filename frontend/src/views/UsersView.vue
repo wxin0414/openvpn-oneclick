@@ -8,8 +8,8 @@
         </p>
       </div>
       <div class="page-header__actions">
-        <el-button @click="load" :loading="loading">刷新</el-button>
-        <el-button type="primary" @click="openCreate">新增用户</el-button>
+        <el-button @click="load" :loading="loading">{{ $t("刷新") }}</el-button>
+        <el-button type="primary" @click="openCreate">{{ $t("新增用户") }}</el-button>
       </div>
     </div>
 
@@ -36,11 +36,11 @@
         <el-table-column prop="created_at" label="创建时间" width="190" />
         <el-table-column label="操作" width="260">
           <template #default="{ row }">
-            <el-button size="small" @click="openReset(row)">重置口令</el-button>
+            <el-button size="small" @click="openReset(row)">{{ $t("重置口令") }}</el-button>
             <el-button size="small" :type="row.is_active ? 'warning' : 'success'" @click="toggleActive(row)">
               {{ row.is_active ? "停用" : "启用" }}
             </el-button>
-            <el-button size="small" type="danger" @click="remove(row)">删除</el-button>
+            <el-button size="small" type="danger" @click="remove(row)">{{ $t("删除") }}</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -51,7 +51,7 @@
 
     <section class="section-card">
       <div class="section-card__head">
-        <h2 class="section-card__title">修改我的口令</h2>
+        <h2 class="section-card__title">{{ $t("修改我的口令") }}</h2>
       </div>
       <el-form label-width="140px" style="max-width: 520px">
         <el-form-item label="当前口令" required>
@@ -65,7 +65,7 @@
           <el-input v-model="pwd.confirm" type="password" show-password autocomplete="new-password" />
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" :loading="pwdSaving" @click="submitPassword">保存并重新登录</el-button>
+          <el-button type="primary" :loading="pwdSaving" @click="submitPassword">{{ $t("保存并重新登录") }}</el-button>
         </el-form-item>
       </el-form>
     </section>
@@ -83,7 +83,7 @@
       </el-tag>
 
       <div v-if="!twofa.enabled" style="margin-top: 12px">
-        <el-button :loading="twofaBusy" @click="startTwofa">生成密钥</el-button>
+        <el-button :loading="twofaBusy" @click="startTwofa">{{ $t("生成密钥") }}</el-button>
         <div v-if="twofa.secret" style="margin-top: 12px">
           <img v-if="twofa.qr" :src="twofa.qr" alt="2FA 二维码" style="width: 180px; height: 180px" />
           <div class="field-tip" style="margin-top: 6px">
@@ -143,7 +143,7 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="createVisible = false">取消</el-button>
+        <el-button @click="createVisible = false">{{ $t("取消") }}</el-button>
         <el-button type="primary" :loading="saving" @click="submitCreate">创建</el-button>
       </template>
     </el-dialog>

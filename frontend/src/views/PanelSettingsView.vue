@@ -498,7 +498,7 @@ async function runSelfcheck() {
         <h2>面板设置</h2>
         <p class="sub">这里的改动会重新渲染 nginx 配置并 reload；失败会自动回滚，不会让你进不去。</p>
       </div>
-      <el-button :loading="loading" @click="load">刷新</el-button>
+      <el-button :loading="loading" @click="load">{{ $t("刷新") }}</el-button>
     </div>
 
     <el-alert
@@ -558,7 +558,7 @@ async function runSelfcheck() {
       <el-form label-position="top">
         <el-form-item label="TLS">
           <el-radio-group v-model="form.tls_mode">
-            <el-radio-button label="off">关闭</el-radio-button>
+            <el-radio-button label="off">{{ $t("关闭") }}</el-radio-button>
             <el-radio-button label="selfsigned">自签证书</el-radio-button>
             <el-radio-button label="existing">使用已有证书</el-radio-button>
           </el-radio-group>
@@ -575,7 +575,7 @@ async function runSelfcheck() {
 
         <el-form-item label="会话有效期（分钟）">
           <el-input-number v-model="sessionMinutes" :min="10" :max="10080" controls-position="right" />
-          <el-button class="ml" @click="saveSession">保存</el-button>
+          <el-button class="ml" @click="saveSession">{{ $t("保存") }}</el-button>
           <div class="hint">写入 .env 的 ACCESS_TOKEN_EXPIRE_MINUTES，重启面板后生效。</div>
         </el-form-item>
       </el-form>
@@ -627,8 +627,8 @@ async function runSelfcheck() {
     <el-card class="section-card" shadow="never">
       <template #header><b>备份</b></template>
       <div class="actions">
-        <el-button type="primary" :loading="backingUp" @click="doBackup">立即备份</el-button>
-        <el-button :loading="loading" @click="loadBackups">刷新列表</el-button>
+        <el-button type="primary" :loading="backingUp" @click="doBackup">{{ $t("立即备份") }}</el-button>
+        <el-button :loading="loading" @click="loadBackups">{{ $t("刷新列表") }}</el-button>
       </div>
       <div class="hint">
         备份 CA 私钥、server.conf、.env 与 app.db 四项；文件在
@@ -643,8 +643,8 @@ async function runSelfcheck() {
         <el-table-column prop="backup" label="路径" min-width="240" show-overflow-tooltip />
         <el-table-column label="操作" width="160" fixed="right">
           <template #default="{ row }">
-            <el-button link @click="doDownload(row)">下载</el-button>
-            <el-button type="danger" link @click="doRestore(row)">恢复</el-button>
+            <el-button link @click="doDownload(row)">{{ $t("下载") }}</el-button>
+            <el-button type="danger" link @click="doRestore(row)">{{ $t("恢复") }}</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -666,8 +666,8 @@ async function runSelfcheck() {
           </div>
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" :loading="scheduleSaving" @click="saveSchedule">保存</el-button>
-          <el-button :loading="scheduleRunning" @click="runScheduleNow">立即执行一次</el-button>
+          <el-button type="primary" :loading="scheduleSaving" @click="saveSchedule">{{ $t("保存") }}</el-button>
+          <el-button :loading="scheduleRunning" @click="runScheduleNow">{{ $t("立即执行一次") }}</el-button>
           <span class="hint" style="margin-left: 8px">上次执行：{{ schedule.last_run || "从未" }}</span>
         </el-form-item>
       </el-form>
@@ -711,7 +711,7 @@ async function runSelfcheck() {
         <el-card class="panel-card" shadow="never">
         <template #header>
           <div class="card-head">
-            <span>一键诊断</span>
+            <span>{{ $t("一键诊断") }}</span>
             <el-button size="small" type="primary" :loading="checkLoading" @click="runSelfcheck">
               运行自检
             </el-button>

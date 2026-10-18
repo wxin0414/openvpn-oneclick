@@ -8,6 +8,7 @@ import router from "./router";
 // Element Plus stylesheets and win on import order.
 import "./assets/base.css";
 import "./styles/theme.css";
+import { t as translate } from "./i18n";
 // Element Plus 的暗色变量：只有加上 html.dark 时才生效（见 App.vue 的主题切换）
 import "element-plus/theme-chalk/dark/css-vars.css";
 
@@ -31,3 +32,6 @@ import "element-plus/theme-chalk/el-message-box.css";
 const app = createApp(App);
 app.use(router);
 app.mount("#app");
+
+// 模板里用 {{ $t("中文") }} 取英文：免去每个视图各自 import，少一处出错
+app.config.globalProperties.$t = translate;

@@ -368,7 +368,7 @@
         <template #header>
           <div class="card-head">
             <span>配置历史（server.conf 备份）</span>
-            <el-button size="small" @click="loadHistory" :loading="historyLoading">刷新</el-button>
+            <el-button size="small" @click="loadHistory" :loading="historyLoading">{{ $t("刷新") }}</el-button>
           </div>
         </template>
         <div class="field-tip" style="margin-bottom: 8px">
