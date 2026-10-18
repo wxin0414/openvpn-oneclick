@@ -1221,7 +1221,17 @@ deploy_panel() {
   tar -xzf "$asset" -C "$extract"
   local src
   src="$(find "$extract" -maxdepth 2 -type d -name backend | head -1)"
-  [ -n "$src" ] || die "面板包结构异常：找不到 backend/ 目录"
+  if [ -z "$src" ]; then
+    # 把"用的是哪个包"写进错误里：真机上曾因为脚本同级目录残留了一个旧/损坏的面板包，
+    # 最终报成"结构异常"，看上去像下载坏了，实际是本地产物。多一行路径能省掉几小时排查。
+    local asz="?"; [ -f "$asset" ] && asz="$(stat -c %s "$asset" 2>/dev/null || echo ?)"
+    die "面板包结构异常：找不到 backend/ 目录
+      使用的文件：${asset}（${asz} bytes）
+      tar 内容前几项：
+$(tar -tzf "$asset" 2>/dev/null | head -5 | sed 's/^/        /')
+    如果这个文件在脚本同级目录（${SCRIPT_DIR}/${ASSET_PATH}），说明用的是本地旧包；
+    删除或替换它，或改用 PANEL_TARBALL_URL 指定来源后重试。"
+  fi
   src="$(dirname "$src")"
 
   # 系统用户
