@@ -4,7 +4,49 @@
 
 关于版本号：仓库历史中 `VERSION.txt` 由 `1.2.2` 直接跳到 `1.2.4`，没有 1.2.3 的独立提交，因此这里没有 `[1.2.3]` 条目。1.2.2 与 1.2.3 都因下列安装缺陷无法在 Debian 12 上完成安装，修复集中在 1.2.4。
 
-## [1.4.6] — 2026-10-18
+## [1.4.7] — 2026-10-18
+
+补齐三处"有后端没界面"与一个**假功能**。
+
+### 修复 — 「禁用客户端」此前是假功能
+
+`clients.disabled` 字段只被 `status_sync` 读来做**状态显示**：没有任何接口能设置它，
+CCD 也从不写 `disable`，所以"禁用"之后**客户端照样能连**。这类"看起来禁用了其实没禁"
+比明确缺功能更危险。
+
+现在的行为：
+
+- 新增 `PATCH /api/clients/{id}` 的 `disabled` 参数
+- 禁用 → 往该客户端的 CCD 写 `disable`（OpenVPN 的 ccd 支持，连接时直接踢掉），
+  并立即断开在线会话
+- 启用 → 重写 CCD（保留 `ifconfig-push`/`iroute`，只去掉 `disable`）
+- 响应模型补上 `disabled` 字段（否则前端拿不到真实状态，按钮永远显示同一个值）
+- 客户端列表新增 **禁用/启用** 动作，带二次确认
+
+真机验证（110.42.102.239）：
+创建后 `disabled=False` → 禁用后 `True` 且 CCD 为 `disable` → 启用后 `False` 且 CCD 清空
+→ 同时设固定 IP 时 CCD 两行并存（`disable` + `ifconfig-push`）→ OpenVPN 全程 active。
+
+### 新增 — 用户管理页
+
+后端 `/api/users` 四个路由一直存在，但**前端既没有 `api/users.js` 也没有页面**，
+导致上一版做出来的 `viewer` 只读角色只能靠 curl 建账号。现在补齐：
+
+- `frontend/src/api/users.js`、`frontend/src/views/UsersView.vue`、路由 `/users`、侧边栏入口
+- 列表（用户名/角色/状态/创建时间）、新增（可选 admin 或 viewer）、重置口令、停用/启用、删除
+- 同页提供 **修改我的口令**（`POST /api/auth/change-password`）——此前 `viewer` 根本没有
+  改自己口令的入口（`/panel/admin-credentials` 是超管且被中间件挡）
+
+### 修复 — 「服务器管理」页的误导
+
+后端 `/api/servers` 有 `POST`/`DELETE`，但前端只有"保存配置"，库里也永远只有本机一条记录。
+页面顶部现在明确写着 **当前版本仅管理本机服务器**，并说明地址/端口只用于生成客户端配置的
+`remote` 行 —— 不再让人以为能加机器。
+
+### 过程记录
+
+`clients.js` 里我把注释写成了 `#`（Python 风格），Vite 直接报 `Unexpected character '：'`
+把整包构建打断——属于低级失误，已改。## [1.4.6] — 2026-10-18
 
 安全修复：客户端名称（`common_name`）缺少校验，可导致**路径穿越写文件**与**参数注入**。
 

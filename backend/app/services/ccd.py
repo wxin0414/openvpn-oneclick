@@ -77,7 +77,7 @@ def _ifconfig_push(fixed_ip: str, conf: server_conf.ServerConf) -> str:
     return f"ifconfig-push {fixed_ip} {conf.netmask or server_conf.DEFAULT_NETMASK}"
 
 
-def write_ccd(client: Client, *, fixed_ip: str | None, routes: Iterable[str] | None = None) -> Path:
+def write_ccd(client: Client, *, fixed_ip: str | None, routes: Iterable[str] | None = None, disabled: bool = False) -> Path:
     """Write CCD file for client with optional static IP and per-client routes."""
     # 兜底：即使上层校验被绕过，也绝不把 .. 拼进路径（实测能写到 CCD 目录之外）
     ensure_safe_name(client.common_name)
@@ -90,6 +90,10 @@ def write_ccd(client: Client, *, fixed_ip: str | None, routes: Iterable[str] | N
 
     conf = server_conf.load()
     lines: list[str] = []
+    # OpenVPN 的 ccd 支持 `disable`：连接时直接踢掉该客户端。
+    # 之前"禁用"只改数据库 status，客户端照样能连——是个假功能。
+    if disabled:
+        lines.append("disable")
     if fixed_ip:
         lines.append(_ifconfig_push(fixed_ip, conf))
     if routes:

@@ -27,6 +27,8 @@ class ClientUpdate(BaseModel):
     fixed_ip: str | None = Field(default=None, max_length=50)
     routes: str | None = Field(default=None, max_length=500)
     status: str | None = None
+    # 真正的"禁用"：会写进 CCD 的 disable 行并断开在线会话
+    disabled: bool | None = None
 
 
 class ClientOnline(BaseModel):
@@ -42,6 +44,7 @@ class ClientOnline(BaseModel):
 class Client(ClientBase):
     id: int
     status: str
+    disabled: bool = False
     created_at: datetime
 
     class Config:

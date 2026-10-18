@@ -46,6 +46,9 @@
             <el-button size="small" @click="openEdit(row)">编辑</el-button>
             <el-button size="small" type="success" :loading="busyId === row.id" @click="handleExport(row)">下载</el-button>
             <el-button size="small" @click="openShare(row)">分享</el-button>
+            <el-button size="small" :type="row.disabled ? 'success' : 'warning'" @click="toggleDisabled(row)">
+              {{ row.disabled ? "启用" : "禁用" }}
+            </el-button>
             <el-button size="small" type="warning" :disabled="row.status !== 'online'" @click="disconnect(row)">
               强制下线
             </el-button>
@@ -83,6 +86,9 @@
             <el-button size="small" @click="openEdit(row)">编辑</el-button>
             <el-button size="small" type="success" :loading="busyId === row.id" @click="handleExport(row)">下载</el-button>
             <el-button size="small" @click="openShare(row)">分享</el-button>
+            <el-button size="small" :type="row.disabled ? 'success' : 'warning'" @click="toggleDisabled(row)">
+              {{ row.disabled ? "启用" : "禁用" }}
+            </el-button>
             <el-dropdown trigger="click" placement="bottom-end" @command="(command) => handleRowCommand(command, row)">
               <button type="button" class="icon-btn" aria-label="更多操作">
                 <el-icon><i class="ri-more-2-fill"></i></el-icon>
@@ -211,6 +217,7 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import {
   createClient,
   createShareLink,
+  setClientDisabled,
   getNextIp,
   deleteClient,
   listClients,
@@ -355,6 +362,29 @@ const openEdit = (row) => {
   resetValidateState();
   dialogVisible.value = true;
 };
+
+async function toggleDisabled(row) {
+  const next = !row.disabled;
+  const tip = next
+    ? "禁用会写入 CCD 的 disable 行并立即断开该客户端，确认继续？"
+    : "重新启用后该客户端可以再次连接，确认继续？";
+  const ok = await ElMessageBox.confirm(tip, next ? "禁用客户端" : "启用客户端", {
+    type: "warning",
+    confirmButtonText: "确认",
+    cancelButtonText: "取消",
+  }).catch(() => false);
+  if (!ok) return;
+  busyId.value = row.id;
+  try {
+    await setClientDisabled(row.id, next);
+    ElMessage.success(next ? "已禁用（连接会被拒绝）" : "已启用");
+    await load();
+  } catch (err) {
+    ElMessage.error(err?.response?.data?.detail || "操作失败");
+  } finally {
+    busyId.value = null;
+  }
+}
 
 // ---- 一次性分享链接（二维码编码的是下载链接，不是 8 KB 的配置本身）----
 const downloadsVisible = ref(false);

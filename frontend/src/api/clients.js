@@ -56,3 +56,6 @@ export const getNextIp = () => api.get("/clients/next-ip");
 // 一次性下载链接（含二维码）。返回 { url, qr, expires_at, ttl_minutes }
 export const createShareLink = (id, ttlMinutes = 60) =>
   api.post(`/clients/${id}/share`, null, { params: { ttl_minutes: ttlMinutes } });
+
+// 真正的禁用：后端会写 CCD 的 disable 行并断开会话
+export const setClientDisabled = (id, disabled) => api.patch(`/clients/${id}`, { disabled });

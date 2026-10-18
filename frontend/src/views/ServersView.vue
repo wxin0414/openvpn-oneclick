@@ -1,5 +1,13 @@
 <template>
   <div class="page" v-loading="loading">
+  <el-alert
+    type="info"
+    :closable="false"
+    show-icon
+    style="margin-bottom: 12px"
+    title="当前版本仅管理本机服务器"
+    description="这里的地址与端口只用于生成客户端配置里的 remote 行（以及面板显示的连接地址），不会连接别的机器。新增/删除多台服务器尚未实现。"
+  />
     <div class="page-header">
       <div class="page-header__text">
         <h1 class="page-header__title">OpenVPN 服务端</h1>

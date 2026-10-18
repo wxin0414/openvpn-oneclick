@@ -283,7 +283,20 @@ def update_client(client_id: int, client_in: ClientUpdate, db: Session = Depends
         routes = []
         if client_in.routes:
             routes = [r.strip() for r in client_in.routes.split(",") if r.strip()]
-        ccd_service.write_ccd(updated, fixed_ip=client_in.fixed_ip, routes=routes)
+        ccd_service.write_ccd(updated, fixed_ip=client_in.fixed_ip, routes=routes, disabled=bool(updated.disabled))
+
+    # 禁用/启用：必须落到 CCD（写 `disable` 行）才真的挡得住连接；
+    # 只改数据库字段的话客户端照样能连，属于"看起来禁用了其实没禁"。
+    if client_in.disabled is not None:
+        routes = [r.strip() for r in (updated.routes or "").split(",") if r.strip()]
+        ccd_service.write_ccd(
+            updated, fixed_ip=updated.fixed_ip, routes=routes, disabled=bool(updated.disabled)
+        )
+        if updated.disabled:
+            try:
+                management.disconnect(updated.common_name)
+            except Exception:  # noqa: BLE001 - 不在线/管理接口不可用时忽略
+                logger.debug("禁用客户端时断开失败（可能不在线）", exc_info=True)
     return updated
 
 
@@ -503,5 +516,5 @@ def update_ccd(client_id: int, client_in: ClientUpdate, db: Session = Depends(de
     if client_in.routes:
         routes = [r.strip() for r in client_in.routes.split(",") if r.strip()]
     updated = crud.client.update(db, db_obj=client, obj_in=client_in)
-    ccd_service.write_ccd(updated, fixed_ip=client_in.fixed_ip, routes=routes)
+    ccd_service.write_ccd(updated, fixed_ip=client_in.fixed_ip, routes=routes, disabled=bool(updated.disabled))
     return updated
