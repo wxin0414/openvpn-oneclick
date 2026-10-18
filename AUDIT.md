@@ -793,3 +793,43 @@ service-control / backup-now / restore-backup`。
 
 镜像**没有构建、没有运行**（本机无 Docker 环境），所以以上全部是静态核对。`verify-offline.sh`
 也未执行。这一点明确记为"未验证"，不写成"通过"。
+---
+
+## 模块 13：测试与 CI 覆盖 —— 有明确缺口
+
+**规模**：`backend/tests/test_fixes.py` 1595 行 / 241 项断言；`tests/` 目录 12 个脚本（安装器 93 项、
+助手 apply_config 53 项、panel_config 159 项等）；CI 每次 push 跑全套。
+
+**缺口（脚本比对，非目测）**：63 条 API 路由中，只有 **19 条**在 `test_fixes.py` 里出现过字符串引用，
+**44 条没有**，包括：
+
+```text
+/api/2fa/{status,setup,enable,disable}        /share/{token}
+/api/clients/{cert,ccd,revoke,share,disconnect,next-ip,online,validate}
+/api/clients/export(-ovpn)                    /api/panel/{backup,backups,backups/{name}/download,
+/api/settings/history{,/{name},/{name}/restore}     restore,network,upgrade*,admin-credentials}
+/api/traffic/overview  /api/logs/audit(/export)   /api/notify(/test)  /api/health/*
+```
+
+**但要说清楚**：这 44 条里有一部分我用**真机 API 实测**替代了单测（2FA 十步流程、share 一次性
+410、备份下载 200、审计 CSV 上限、servers control 200/405、分组筛选与导出）。所以不是"完全没验证"，
+而是**没有自动化回归保护**——将来改动这些路由，CI 不会红。
+
+**结论**：测试覆盖是"关键路径有、长尾没有"。要补的话，优先 `share`、`panel/backups/{name}/download`、
+`settings/history/{name}/restore` 三条（有安全/数据风险），其余可以靠真机脚本兜。
+
+---
+
+## 模块 14：文档一致性 —— 发现并已修
+
+**发现**：`VERSION.txt` 已是 `2.0.2`，但 `CHANGELOG.md` 最新条目停在 `2.0.0`——2.0.1、2.0.2 两次发布
+**没有写进 CHANGELOG**。这是我这轮"改代码就升版"的操作遗漏，已补上两条（2.0.1 恢复码 CAS、2.0.2 2FA 跳转修复）。
+
+其余一致性核对：
+
+| 核对项 | 结论 |
+| --- | --- |
+| README 是否写死版本号 | 通过（grep 无版本字符串，不会过期） |
+| CHANGELOG 与 tag 对应 | 修复后一致（v2.0.0 / v2.0.2 均有条目） |
+| README 的功能清单 vs 代码 | 早前已更新（2FA / 分组 / 暗色英文已从"未实现"移除） |
+| AUDIT.md 与代码 | 同步（每轮追加，含未修项与误判记录） |
