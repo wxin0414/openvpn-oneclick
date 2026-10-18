@@ -850,3 +850,24 @@ service-control / backup-now / restore-backup`。
    —— 对应模块 8 记录的行为观察，用界面提示解决，不改自动放行语义
 
 `npm run build` 通过。
+### 升级回滚：代码已写，验证被自身流程挡了一次
+
+实现（`install.sh`）：
+
+- `code_snapshot()` 现在把快照路径回传到全局 `CODE_SNAPSHOT`
+- 新增 `code_restore <snapshot>`：`tar -xpzf` 解包回 `/`，`systemctl restart ovpnmanager`，轮询 15 秒确认 `active` 才返回 0
+- `do_update` 里用 `deploy_panel || rc=$?` + `self_check || rc=$?` 捕获失败，
+  `rc != 0` 时调 `code_restore`，成功则 `die "已回滚到升级前的代码"`
+
+**验证尝试 1（失败，但失败原因值得记录）**：直接 source install.sh 调 `code_snapshot` —— 返回空。
+原因是 install.sh 顶层就有依赖 root/状态文件的语句，`source` 早期就中断，函数根本没定义。
+**这不是回滚代码的问题，是我的测试方法错了。**
+
+**验证尝试 2（同样无效）**：真机跑 `install.sh --update`。升级本身成功（exit 0、版本不变、服务 active），
+但 `/var/backups/ovpn-oneclick/` **没有 code-*.tar.gz**。原因是：`--update` 会从 GitHub 下载安装器并执行，
+而这一轮的回滚代码**还没 push**，下载到的是不含 `code_snapshot` 的旧版。
+
+> 两次尝试都没能验证到目标行为。已 push 后再跑一次，见下一轮的记录。
+
+另外确认：升级会整体替换面板目录，所以放在 `/opt/ovpnmanager/backend/app/` 下的标记文件会被覆盖——
+这是升级的正常行为；快照排除了 `backend/data`，数据不受影响。

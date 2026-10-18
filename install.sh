@@ -2122,6 +2122,7 @@ backup_current() {
 # 面板可能是"代码已换、服务起不来"的中间态，而旧代码已经没了。这里把即将被覆盖的
 # 代码打一份，至少留一条人工可回退的路（自动回滚见 do_update 的说明）。
 code_snapshot() {
+  CODE_SNAPSHOT=""
   mkdir -p "$PANEL_BACKUP_DIR"
   local stamp; stamp="$(date +%Y%m%d-%H%M%S)"
   local out="${PANEL_BACKUP_DIR}/code-${stamp}.tar.gz"
@@ -2137,9 +2138,31 @@ code_snapshot() {
     --exclude='backend/data' \
     "${targets[@]}" 2>/dev/null || { warn "代码快照失败（升级仍继续，但失败后无代码可回退）"; return 0; }
   ok "已生成代码快照：${out}"
+  CODE_SNAPSHOT="$out"
   # 只留最近 3 份，避免把磁盘塞满
   ls -1t "${PANEL_BACKUP_DIR}"/code-*.tar.gz 2>/dev/null | tail -n +4 | xargs -r rm -f || true
   return 0
+}
+
+# 用快照还原代码：解包回 /，再重启面板并确认它真的起来了。
+# 只覆盖快照里含有的路径（面板目录、助手目录、nginx 站点配置）；
+# 快照排除了 .venv 与 backend/data，所以数据不会被回滚覆盖。
+code_restore() { # code_restore <snapshot.tar.gz>
+  local snap="$1"
+  [ -f "$snap" ] || { warn "回滚失败：找不到快照 $snap"; return 1; }
+  info "回滚代码：$snap"
+  tar -xpzf "$snap" -C / 2>/dev/null || { warn "回滚失败：解包出错"; return 1; }
+  systemctl restart ovpnmanager 2>/dev/null || true
+  local i
+  for i in $(seq 1 15); do
+    sleep 1
+    if systemctl is-active ovpnmanager >/dev/null 2>&1; then
+      ok "面板已用旧代码重新启动"
+      return 0
+    fi
+  done
+  warn "回滚后面板仍未 active，需要人工介入"
+  return 1
 }
 
 # 只把模板里"新版本新增、而现有 .env 没有"的键追加进去，
@@ -2210,6 +2233,7 @@ do_update() {
   self_update
   backup_current
   code_snapshot
+  local snap="${CODE_SNAPSHOT:-}"
 
   detect_os
   resolve_openvpn_layout
@@ -2223,8 +2247,20 @@ do_update() {
     adopt_layout
   fi
 
-  deploy_panel
-  self_check
+  # 部署或自检失败时用升级前的快照回滚，避免留下"代码已换、状态没更新"的中间态。
+  # 用 `|| rc=$?` 而不是 `if !`，是为了保留当前 shell 的全局变量（save_state 依赖它们）。
+  local rc=0
+  deploy_panel || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    self_check || rc=$?
+  fi
+  if [ "$rc" -ne 0 ]; then
+    warn "升级失败（rc=${rc}）"
+    if [ -n "$snap" ] && code_restore "$snap"; then
+      die "升级失败，已回滚到升级前的代码（快照 ${snap}）。请查看日志后重试。"
+    fi
+    die "升级失败，且回滚未成功（快照 ${snap:-无}）。请人工检查。"
+  fi
   save_state
   ok "升级完成：${before} -> ${SCRIPT_VERSION}"
   print_summary
