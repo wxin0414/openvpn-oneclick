@@ -1040,3 +1040,24 @@ UPDATE_RC=1
 
 意义：这 11 条里，S1/S2/S5/S7/S9 对应的都是**有安全风险**的行为（路径穿越、令牌重放、SSRF），
 以前改动它们不会有任何自动化提示，现在 CI 会红。
+### CI 是否跑 Python 断言？—— 跑，且最新提交绿灯
+
+核对 `.github/workflows/ci.yml`：
+
+```text
+L98  作业「面板后端（接口与逻辑断言）」
+L107 安装依赖
+L114 run: python tests/test_fixes.py
+```
+
+所以我上一轮担心的"252 条断言白写"不成立 —— **CI 确实会跑它们**。
+
+最近三次 CI：
+
+```text
+#93  6bde1e9  completed  success   （含新增 11 条 S 系列断言）
+#92  df04f62  completed  success
+#91  13585e1  completed  success
+```
+
+结论：新增的安全回归断言已纳入 CI 门禁，改动这些安全路径会让 CI 变红。
