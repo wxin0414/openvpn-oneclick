@@ -41,7 +41,9 @@ def sync_once(db: Session, *, online_common_names: set[str] | None = None) -> in
 
     changed = 0
     for client in db.query(crud.client.model).all():
-        if client.disabled:
+        if _apply_expiry(db, client):
+            desired = "disabled"
+        elif client.disabled:
             desired = "disabled"
         elif client.common_name in online_common_names:
             desired = "online"
@@ -99,3 +101,39 @@ def stop_background_sync() -> None:
 
 
 __all__ = ["sync_once", "start_background_sync", "stop_background_sync"]
+
+def _apply_expiry(db, client) -> bool:
+    """到期就把 disabled 落库并写 CCD 的 disable，返回该客户端现在是否应视为禁用。
+
+    为什么放在这里：`sync_once` 本来就每 30 秒遍历一次全部客户端，借用它就能做到
+    "到期后最多 30 秒内被踢下线"，不需要再加一个调度器。
+
+    只做一次副作用（`not client.disabled` 才写），避免每轮都重写 CCD。
+    """
+    from datetime import datetime
+
+    expires_at = getattr(client, "expires_at", None)
+    if client.disabled:
+        return True
+    if not expires_at:
+        return False
+    if expires_at > datetime.now():
+        return False
+
+    client.disabled = True
+    db.add(client)
+    db.commit()
+    try:
+        from app.services import ccd as ccd_service
+
+        routes = [r.strip() for r in (client.routes or "").split(",") if r.strip()]
+        ccd_service.write_ccd(client, fixed_ip=client.fixed_ip, routes=routes, disabled=True)
+    except Exception:  # noqa: BLE001 - 写 CCD 失败不能打断状态同步
+        pass
+    try:
+        from app.services import management
+
+        management.disconnect(client.common_name)
+    except Exception:  # noqa: BLE001 - 不在线时忽略
+        pass
+    return True

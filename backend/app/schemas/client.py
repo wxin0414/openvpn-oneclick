@@ -10,6 +10,9 @@ class ClientBase(BaseModel):
     common_name: str = Field(..., max_length=64, pattern=NAME_PATTERN)
     fixed_ip: str | None = Field(default=None, max_length=50)
     routes: str | None = Field(default=None, max_length=500)
+    # 到期时间与流量配额：为空表示不过期 / 不限量
+    expires_at: datetime | None = None
+    quota_mb: int | None = Field(default=None, ge=0, le=10000000)
 
     @field_validator("name", "common_name")
     @classmethod
@@ -29,6 +32,9 @@ class ClientUpdate(BaseModel):
     status: str | None = None
     # 真正的"禁用"：会写进 CCD 的 disable 行并断开在线会话
     disabled: bool | None = None
+    # 到期时间 / 配额（MB）：改这两个值也会触发 CCD 重算
+    expires_at: datetime | None = None
+    quota_mb: int | None = Field(default=None, ge=0, le=10000000)
 
 
 class ClientOnline(BaseModel):

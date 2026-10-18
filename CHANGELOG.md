@@ -4,6 +4,33 @@
 
 关于版本号：仓库历史中 `VERSION.txt` 由 `1.2.2` 直接跳到 `1.2.4`，没有 1.2.3 的独立提交，因此这里没有 `[1.2.3]` 条目。1.2.2 与 1.2.3 都因下列安装缺陷无法在 Debian 12 上完成安装，修复集中在 1.2.4。
 
+## [1.6.0] — 2026-10-18
+
+客户端到期时间（第 4 项，到期部分闭环）。
+
+- `clients` 表新增 `expires_at`(DATETIME) 与 `quota_mb`(INTEGER)，均可空；
+  可空意味着升级后原有客户端行为不变（不过期、不限量）
+- `_ensure_client_quota_columns()`：`create_all` 不会给已有表加列，用 `PRAGMA table_info`
+  探测后 `ALTER TABLE`。不这么做，升级上来的机器一读新列就 `no such column`，客户端页直接打不开
+- 创建/更新/响应三类 schema 都带上这两个字段（第一版只给 `ClientUpdate` 加了注释没加字段，
+  PATCH 被 Pydantic 静默丢弃、`expires_at` 回读是 `None`——真机验证时才发现）
+- 生效逻辑 `status_sync._apply_expiry()`：借用每 30 秒一次的既有同步循环（不新增调度器），
+  发现过期就 `disabled=True` 落库 + 写 CCD 的 `disable` + 断开在线会话；只做一次副作用，
+  避免每轮重写 CCD
+
+### 真机验证（110.42.102.239）
+
+```text
+PATCH expires_at = 1 小时前  -> 返回该值，disabled=False
+等待状态同步（约 30s）       -> disabled=True
+CCD 内容                     -> disable|
+清理                         -> DELETE 202，服务全 active
+```
+
+### 尚未完成（同一项内的后续）
+
+- **流量配额 `quota_mb` 的按量踢线**：字段已存，但还没有按客户端累计流量的计算与触发
+- 面板表单字段与列表展示（目前只能通过 API 设置到期时间）
 ## [1.5.2] — 2026-10-18
 
 审计日志导出 CSV（第 9 项）。
