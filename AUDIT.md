@@ -257,3 +257,35 @@ TLS 相关全部通过（含关不掉的锁死修复）；恢复前有 PRE_BACKU
 ### 仍未做（下一轮）：自动回滚
 
 `do_update` 依然是 `deploy_panel → self_check → save_state` 直下，失败不回滚。原因不变：`self_check` 内部会 `die`（直接退出脚本），用 `if !` 包不住，必须改成"返回值 + ERR trap 兜底"才可靠；这属于改主链路，需要用**故意失败的升级**做真机验收。半截的自动回滚比没有更危险，所以本轮只做可回退的底座。
+### 模块 6 的一处未验证（如实记录）
+
+`code_snapshot()` 只做了 `bash -n` 与安装器断言（93/93）验证，**没有在真实的 `install.sh --update` 上跑过一次**。原因是当轮上下文余量不足以在一次可能失败的在线升级后继续排查。下一轮应在真机跑一次正常 `--update`，确认 `/var/backups/ovpn-oneclick/code-*.tar.gz` 真的生成、能解开、内容包含 `backend/app` 与 nginx 配置。
+
+---
+
+## 模块 7：dashboard + traffic + logs + health + notify + twofa + users + servers + share —— 进行中
+
+### 第一项核对（真机）：匿名可见面
+
+无 Token 直接请求（真机实测）：
+
+```text
+/api/health              404  (不存在，只有 /api/health/version)
+/api/health/version      200  {"version":"1.9.9"}   19 字节
+/api/health/selfcheck    401
+/api/openapi.json        404  (PROD 下关闭)
+/api/docs                404
+/api/clients/            401
+/api/dashboard/metrics   401
+/api/traffic/overview    401
+/api/logs/audit          401
+/api/users/             401
+/api/panel               401
+/api/settings/server     401
+```
+
+**结论**：除版本号外没有匿名可读的数据。`/api/health/version` 匿名可用属于**低危信息暴露**（版本号便于攻击者对照已知漏洞），但它是面板页脚与外部健康检查用的，且不泄露任何配置/用户数据，因此**本轮不改**，记录在案。
+
+### 待核对
+
+share 一次性令牌能否被重复兑换、traffic 采样口径、users 越权（viewer 能否调 admin 接口）、logs 导出上限、notify 的 URL 校验、twofa 的恢复码消费原子性。
