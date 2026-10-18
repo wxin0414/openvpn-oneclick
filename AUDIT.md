@@ -509,3 +509,24 @@ if hashed in stored:          # ① 读
 **这算不算 bug 有争议**：不自动恢复是更安全的选择（避免管理员以为延期了但其它条件没满足就又放行）；但界面上没有任何提示说"你还需要点一下启用"，实际很容易让人以为延期失败。
 
 **本轮不改**：改它会改变行为语义（自动放行），需要配套 UI 提示与真机验证；留作产品决策项，而不是当 bug 直接改掉。
+### selfcheck 核对（真机输出）
+
+```text
+[ok  ] OpenVPN 服务 / 面板服务 / nginx / 特权助手通道(apply.socket)
+[ok  ] IP 转发 / 托管配置块(1194/udp) / 管理接口(在线 0) / 端口 UDP 1194 在监听
+[ok  ] tls-crypt 密钥 / 证书 30 天内无到期 / 磁盘 5.7%（剩 47 GiB）
+[warn] 面板 TLS 未开启：登录口令与令牌走明文 HTTP
+summary: warn  {'ok': 11, 'warn': 1, 'fail': 0}
+```
+
+12 项覆盖：三个 systemd 单元、特权通道、ip_forward、托管块、管理接口、端口监听、tls-crypt、证书到期、面板 TLS、磁盘。`warn` 是我有意关掉 TLS 造成的（`panel.state` 里 `PANEL_TLS_MODE="off"`），判定正确。
+
+**缺少的检查（观察）**：没有检查 CRL 是否新鲜、CCD 目录是否存在、备份目录是否可写、inode 是否耗尽。不是缺陷，是覆盖面可以再扩。
+
+### alert_worker（未复测，标注已知限制）
+
+告警去重与冷却是**进程内字典**（`send_alert_once`）。面板重启后同一条告警会再发一次。这条在 CHANGELOG 里已注明，本轮**没有复测**（要等真实告警触发或人为制造），因此不写"通过"。
+
+### 模块 8 结论
+
+`backup_scheduler`（last_run 只成功才写）✓、`status_sync`（不覆盖用户字段）✓、`selfcheck`（12 项合理）✓；`alert_worker` 仅标注已知限制；`ccd` 的写入路径已在模块 4 间接验证（清空固定 IP 后 CCD 真的变空）。
