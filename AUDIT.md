@@ -430,3 +430,45 @@ API 回报 fixed_ip = None
 ```
 
 修复前后对比：修复前这一步会跳过 CCD 重写，`ifconfig-push 10.8.44.250` 会**留在文件里**，客户端下次连接仍拿到旧 IP，而界面显示已清空。现在行为一致。
+### 第五项核对（真机）：审计 CSV 的行数上限
+
+```text
+limit=10      -> 200   725 字节   11 行（表头 + 10 条）
+limit=1000    -> 200  12085 字节  178 行（库里只有 177 条）
+limit=50000   -> 200  12085 字节  178 行
+limit=50001   -> 422
+limit=100000  -> 422
+limit=-5      -> 422
+```
+
+上限**严格执行**（越界走 FastAPI 校验，不是静默截断）。通过。
+
+### 第六项核对（真机）：traffic overview 结构
+
+```json
+{"points":[{"t":…,"online":1,"rx":0,"tx":0},…],"top":[{"common_name":"client-01","rx":6083,"tx":3586}],
+ "hours":24,"sample_interval":60,"retention_days":30,"total_rx":6083,"total_tx":3586,"samples":2}
+```
+
+字段齐全、`top` 与 `total` 一致。**采样口径本轮只看了结构，没有和 OpenVPN 实际流量对账**，不写"通过"。
+
+### 第七项：2FA 恢复码并发消费 —— 发现竞态（未修）
+
+**证据（代码，auth.py 的 `_verify_otp_or_recovery`）**：
+
+```python
+hashed = totp.hash_recovery_code(otp)
+if hashed in stored:          # ① 读
+    stored.remove(hashed)     # ② 改内存
+    user.totp_recovery = json.dumps(stored)
+    db.add(user); db.commit() # ③ 写
+```
+
+①→③ 之间没有条件更新（没有 `UPDATE ... WHERE recovery LIKE ...` 或行锁），两个并发登录拿着**同一张恢复码**可以都通过 ① 检查。窗口很小（毫秒级），但不是原子操作。share 令牌那边用的是条件 UPDATE（已真机验证 410），这里没有同样的保护。
+
+**为什么本轮没修**：要改成条件 UPDATE（把"这条码还在"作为 WHERE 条件、以影响行数判定成功），并需要一个并发测试（两个线程同时用同一张码，断言只有一个 200）。上下文余量不足以保证验证到位，留作独立一轮。**这属于"知道有洞、但没把握一次改对"的情况，我不动。**
+
+### 模块 7 结论
+
+匿名面、分享一次性、viewer 越权、SSRF、webhook 清空、审计 CSV 上限：**6 项真机验证通过**。
+2FA 恢复码并发：**发现竞态，未修**。traffic 采样口径：仅结构核对。
