@@ -202,3 +202,21 @@ server_conf_writer.py L79 的注释要求"必须与 templates/apply-validate.sh 
 | 审计 | 通过 | L564-570 记录 `settings.restore` + 成功/失败原因 |
 
 本轮**未发现缺陷**。模块 5 中"解析与写入往返"仍只由既有测试覆盖，未另做真机往返。
+---
+
+## 模块 6：后端 panel（TLS / 备份 / 恢复 / 升级 / 网络）—— 部分完成
+
+| 核对项 | 结论 | 证据 |
+| --- | --- | --- |
+| TLS 模式取值校验 | 通过 | panel.py L78 `TLS_MODES = {"off","selfsigned","existing"}`；L242-248 校验拒绝其它值 |
+| TLS 模式与证书路径一致性 | 通过 | L349-354：`TLS_MODE == "off"` 时**强制清空** TLS_CERT/TLS_KEY（否则助手拒绝，界面关不掉 TLS——我真机踩过，注释与代码都在） |
+| `existing` 模式必须给证书与私钥 | 通过 | L362-364，缺一即 400 |
+| 自定义放行模式必须给网段 | 通过 | L360-361，空列表 400 |
+| 自签证书生成 | 通过（代码存在） | `templates/apply-panel-config.sh` 的 `ensure_selfsigned()`；本轮未真机切换验证 |
+| 恢复前是否先备份当前状态 | 通过（助手输出可证） | `restore-backup.sh` 输出 `PRE_BACKUP=`（L43 失败路径、L162 成功路径），说明恢复前会先做一份 |
+| 备份 / 升级 / 网络三项 | **未核对** | 下一轮 |
+
+### 没能验证的（如实标注）
+
+- **TLS 从 off 切到 selfsigned** 的完整真机流程本轮没跑（会重建 nginx 配置，需要窗口），只有代码证据
+- 升级失败能否退回旧版本：只看到 `self-update.sh` 会返回 `FROM/TO/LOG`，没读回滚逻辑，也没实测
