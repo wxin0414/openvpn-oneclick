@@ -9,6 +9,7 @@
         <el-button type="primary" @click="openCreate">新增客户端</el-button>
       <el-button @click="downloadsVisible = true">客户端下载</el-button>
       <el-button :loading="exporting" @click="doExportCsv">导出清单</el-button>
+      <el-button :loading="exporting" @click="doExportOvpn">导出配置包</el-button>
       </div>
     </div>
 
@@ -255,6 +256,7 @@ import {
   createShareLink,
   setClientDisabled,
   exportClientsCsv,
+  exportOvpnZip,
   getNextIp,
   deleteClient,
   listClients,
@@ -410,6 +412,32 @@ const openEdit = (row) => {
 };
 
 const exporting = ref(false);
+
+async function doExportOvpn() {
+  const { value } = await ElMessageBox.prompt(
+    "输入分组名打包该组的 .ovpn；留空则打包全部（只有已导出过配置的客户端会被包含）",
+    "导出客户端配置包",
+    { inputPlaceholder: "如：团队A（留空=全部）", confirmButtonText: "打包", cancelButtonText: "取消" }
+  ).catch(() => ({ value: null }));
+  if (value === null) return;
+  const group = String(value || "").trim();
+  exporting.value = true;
+  try {
+    const res = await exportOvpnZip(group || undefined);
+    const name = group ? `ovpn-${group}.zip` : "ovpn-all.zip";
+    const url = URL.createObjectURL(new Blob([res.data]));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = name;
+    link.click();
+    URL.revokeObjectURL(url);
+    ElMessage.success("已打包配置");
+  } catch (err) {
+    ElMessage.error(err?.response?.data?.detail || "打包失败（该组可能还没有已导出的配置）");
+  } finally {
+    exporting.value = false;
+  }
+}
 
 async function doExportCsv() {
   const { value } = await ElMessageBox.prompt(

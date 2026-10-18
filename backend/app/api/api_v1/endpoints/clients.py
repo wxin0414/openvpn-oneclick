@@ -576,3 +576,83 @@ def export_clients(
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{name}"'},
     )
+
+@router.get("/export-ovpn", summary="按分组打包导出 .ovpn（zip）")
+def export_ovpn_zip(
+    group: str | None = Query(default=None, description="按分组筛选；__none__ 表示未分组"),
+    db: Session = Depends(deps.get_db),
+):
+    """把该组客户端已导出的 .ovpn 打成一个 zip。
+
+    几个现实约束（都来自实测/现状，不是设计洁癖）：
+
+    * `.ovpn` 由安装器/导出流程写在 ``OPENVPN_CLIENT_EXPORT_PATH`` 下。真机上该目录
+      属主是面板用户（与备份目录不同），所以可以直接读，不需要额外提权。
+    * 只打包**已经存在的**文件：面板删掉记录后残留的 .ovpn、或从未导出过的客户端，
+      会列进 ``manifest.txt`` 的「缺失」段，而不是悄悄少一个文件。
+    * 文件名来自 ``common_name``，拼路径前再走一次 ``ensure_safe_name``——这是第 4 项
+      修路径穿越时立的规矩，这里不能破。
+    """
+    import io
+    import zipfile
+    from pathlib import Path
+
+    from fastapi import HTTPException
+    from fastapi.responses import StreamingResponse
+
+    from app.core.config import get_settings
+    from app.services.names import ensure_safe_name
+
+    settings = get_settings()
+    export_dir = Path(str(settings.openvpn_client_export_path or "/etc/openvpn/client"))
+
+    model = crud.client.model
+    query = db.query(model)
+    if group:
+        if group == "__none__":
+            query = query.filter(model.group_name.is_(None))
+        else:
+            query = query.filter(model.group_name == group)
+    clients = query.order_by(model.id.asc()).all()
+    if not clients:
+        raise HTTPException(status_code=404, detail="该分组下没有客户端")
+
+    buffer = io.BytesIO()
+    included: list[str] = []
+    missing: list[str] = []
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for client in clients:
+            try:
+                ensure_safe_name(client.common_name)
+            except ValueError:
+                missing.append(f"{client.common_name}（名称不合法，已跳过）")
+                continue
+            path = export_dir / f"{client.common_name}.ovpn"
+            if path.is_file():
+                archive.write(path, arcname=f"{client.common_name}.ovpn")
+                included.append(client.common_name)
+            else:
+                missing.append(client.common_name)
+        manifest = ["# ovpn-oneclick 客户端配置导出", ""]
+        manifest.append(f"分组: {group or '全部'}")
+        manifest.append(f"已包含: {len(included)} 个")
+        manifest += [f"  {name}.ovpn" for name in included]
+        if missing:
+            manifest.append("")
+            manifest.append(f"缺失: {len(missing)} 个（尚未导出或已被删除）")
+            manifest += [f"  {name}" for name in missing]
+        archive.writestr("manifest.txt", "\n".join(manifest) + "\n")
+
+    if not included:
+        raise HTTPException(
+            status_code=404,
+            detail="该分组下没有可导出的 .ovpn 文件（先在客户端详情里导出配置）",
+        )
+
+    buffer.seek(0)
+    filename = f"ovpn-{group.strip('_') or 'all'}.zip"
+    return StreamingResponse(
+        iter([buffer.getvalue()]),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

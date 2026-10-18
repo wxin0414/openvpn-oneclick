@@ -63,3 +63,7 @@ export const setClientDisabled = (id, disabled) => api.patch(`/clients/${id}`, {
 // 导出客户端清单 CSV（可按分组）：blob，接口要 Bearer 令牌
 export const exportClientsCsv = (group) =>
   api.get("/clients/export", { params: group ? { group } : {}, responseType: "blob" });
+
+// 按分组打包导出 .ovpn（zip）
+export const exportOvpnZip = (group) =>
+  api.get("/clients/export-ovpn", { params: group ? { group } : {}, responseType: "blob" });
