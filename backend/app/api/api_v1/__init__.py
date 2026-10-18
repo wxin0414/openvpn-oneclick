@@ -10,6 +10,7 @@ from app.api.api_v1.endpoints import (
     jobs,
     logs,
     notify,
+    twofa,
     openvpn,
     panel,
     servers,
@@ -34,3 +35,4 @@ api_router.include_router(share.router, tags=["share"])
 api_router.include_router(traffic.router, prefix="/traffic", tags=["traffic"])
 api_router.include_router(users.router, prefix="/users", tags=["users"])
 api_router.include_router(notify.router, prefix="/notify", tags=["notify"])
+api_router.include_router(twofa.router, prefix="/2fa", tags=["2fa"])

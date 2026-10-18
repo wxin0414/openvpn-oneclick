@@ -66,6 +66,23 @@ def login(
         _audit(db, form_data.username, "user_login", form_data.username, "fail")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Inactive user")
 
+    # 两步验证：开启后的用户必须再提供一个 6 位码（或一次性恢复码）。
+    # 码从 query 参数 otp 或请求头 X-OTP 传，避免改动 OAuth2PasswordRequestForm 的形状
+    # （前端表单编码登录已经固定，加字段会牵连整个登录调用）。
+    if getattr(user, "totp_enabled", False):
+        otp = (request.query_params.get("otp") or request.headers.get("X-OTP") or "").strip()
+        if not otp:
+            _audit(db, form_data.username, "user_login", form_data.username, "2fa_required")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="需要两步验证码（otp）",
+                headers={"X-2FA-Required": "1"},
+            )
+        if not _verify_otp_or_recovery(db, user, otp):
+            ratelimit.register_failure(form_data.username, client_ip)
+            _audit(db, form_data.username, "user_login", form_data.username, "2fa_fail")
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="两步验证码不正确")
+
     ratelimit.register_success(form_data.username, client_ip)
     access_token = create_access_token(
         subject=user.username, expires_delta=timedelta(minutes=settings.access_token_expire_minutes)
@@ -103,3 +120,29 @@ def change_password(
 
 
 __all__ = ["router", "get_password_hash"]
+
+def _verify_otp_or_recovery(db: Session, user, otp: str) -> bool:
+    """校验 6 位 TOTP 码，或一张未使用过的一次性恢复码（用掉即删除）。"""
+    import json
+
+    from app.services import totp
+
+    secret = getattr(user, "totp_secret", None)
+    if secret and totp.verify(secret, otp):
+        return True
+
+    raw = getattr(user, "totp_recovery", None)
+    if not raw:
+        return False
+    try:
+        stored = json.loads(raw)
+    except Exception:  # noqa: BLE001 - 存储损坏时按失败处理
+        return False
+    hashed = totp.hash_recovery_code(otp)
+    if hashed in stored:
+        stored.remove(hashed)
+        user.totp_recovery = json.dumps(stored)
+        db.add(user)
+        db.commit()
+        return True
+    return False
