@@ -27,6 +27,10 @@
         <el-option label="离线" value="offline" />
         <el-option label="禁用" value="disabled" />
       </el-select>
+      <el-select v-model="filterGroup" class="filter-field--sm" placeholder="分组" clearable size="small" @change="handleFilter">
+        <el-option label="未分组" value="__none__" />
+        <el-option v-for="g in groupOptions()" :key="g" :label="g" :value="g" />
+      </el-select>
       <el-button size="small" type="primary" @click="handleFilter">查询</el-button>
       <el-button size="small" @click="resetFilter">重置</el-button>
     </div>
@@ -312,6 +316,11 @@ const displayedClients = computed(() => clients.value);
 const filterName = ref("");
 const filterStatus = ref("");
 
+const filterGroup = ref("");
+// 下拉选项从当前页数据去重生成：不额外打接口，也不会因为分组很多而拉爆。
+const groupOptions = () =>
+  [...new Set((clients.value || []).map((c) => c.group_name).filter(Boolean))].sort();
+
 const fetchData = async () => {
   loading.value = true;
   try {
@@ -320,6 +329,7 @@ const fetchData = async () => {
       page_size: pageSize.value,
       name: filterName.value || undefined,
       status: filterStatus.value || undefined,
+      group: filterGroup.value || undefined,
     });
     clients.value = data.items;
     total.value = data.total;
@@ -685,6 +695,7 @@ const handleFilter = () => {
 const resetFilter = () => {
   filterName.value = "";
   filterStatus.value = "";
+  filterGroup.value = "";
   handleFilter();
 };
 
