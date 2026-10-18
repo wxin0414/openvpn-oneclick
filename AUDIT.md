@@ -929,3 +929,46 @@ UPDATE_RC=1
 要真正走回滚分支，需要构造一个"结构检查通过、但部署后自检失败"的包
 （例如含 `backend/` 目录但缺 `app/main.py`）。这需要单独一轮，且必须在回滚失效时用
 `pack + --adopt` 兜底。**本轮到这里为止，不把回滚写成"已验证"。**
+### 发现：这台服务器上「在线升级 / 检查更新」不可用，而且报错误导
+
+**证据链**：
+
+```text
+日志（/tmp/u10.log）：
+  22:[*] 下载 https://raw.githubusercontent.com/wxin0414/openvpn-oneclick/main/panel/ovpnmanager-panel.tar.gz
+  23:[x] 面板包下载失败：https://raw.githubusercontent.com/...
+  46:[x] 面板包结构异常：找不到 backend/ 目录      ← 实际是下载失败后回退到本地旧缓存
+真机网络测试：
+  getent hosts raw.githubusercontent.com  -> 只有 IPv6（2606:50c0:...）
+  TCP raw:443       -> 不可连
+  TCP github:443    -> 可连（20.205.243.166）
+  curl -4 raw...    -> HTTP=000 超时（exit 28）
+  本地缓存 /usr/local/lib/ovpnmanager/panel/ -> 空
+```
+
+结论：**`raw.githubusercontent.com` 在这台机器上不可达（域名级，IPv4 也不通）**，
+而 `github.com` 可达。安装器默认的下载源正是 `raw.githubusercontent.com`，因此
+「在线升级」和「检查更新」在这里**必然失败**。
+
+**两个层面的问题**：
+
+1. **可用性**：默认源不可达没有任何前置检测，用户要等到"结构异常"才知道失败
+2. **可诊断性（真实缺陷）**：下载失败后回退到本地残留的旧包，最终报
+   `找不到 backend/ 目录` —— 这个错误把"网络不通"伪装成"包损坏"，会让人白查很久
+   （我自己就被误导了两轮）
+
+**建议修法**：
+- 下载失败时**不要**静默回退到旧载荷，直接报「下载失败：无法访问 raw.githubusercontent.com
+  （可能是网络封锁），可改用 `REPO_HOST=gitee` 或 `PANEL_TARBALL_URL=...`」并附上探测结果
+- 启动时做一次轻量连通性探测（HEAD 或 3 秒超时），把结果写进日志与 `--check-update` 输出
+
+**为什么本轮没修**：改动落在下载/回退主链路，需要真机验证"不可达时给出清晰提示、可达时行为不变"。
+本轮上下文不足，下一轮做。
+
+### 模块 6 最终状态
+
+- TLS 相关：通过
+- 快照 `code_snapshot`：**真机验证通过**（4 项目标、内容正确）
+- `code_restore` 自动回滚：代码就绪，**回滚分支仍未执行过**（两次触发都被更早的检查拦下，
+  且真正原因已查明是下载失败而非包损坏）
+- 「升级失败自动回滚」的**完整闭环验证**：仍未完成
