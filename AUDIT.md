@@ -289,3 +289,37 @@ TLS 相关全部通过（含关不掉的锁死修复）；恢复前有 PRE_BACKU
 ### 待核对
 
 share 一次性令牌能否被重复兑换、traffic 采样口径、users 越权（viewer 能否调 admin 接口）、logs 导出上限、notify 的 URL 校验、twofa 的恢复码消费原子性。
+### 第二项核对（真机）：分享令牌一次性 + TTL
+
+```text
+建 share（TTL 5 分钟，token 32 字符）
+不带任何认证兑换同一链接：第 1 次 200（8378 字节 .ovpn），第 2 次 410，第 3 次 410
+伪造 token：410
+```
+
+**一次性成立**（数据库条件 UPDATE 生效）。`ttl_minutes` 传 `0` / `-1` / `100000` 都返回 200，但服务层
+`share.create` L33 是 `max(1, min(ttl_minutes, 10080))` —— 是**收敛**而不是原样接受（0 与 -1 变成 1 分钟，
+100000 变成 7 天）。不是缺陷；但"静默收敛"对调用方不透明，属于 API 设计的轻微瑕疵。
+
+### 第三项核对（真机）：viewer 越权
+
+建 `role=viewer` 的临时账号登录后：
+
+```text
+管理/写接口（期望 403）：
+  GET    /api/users/          403
+  POST   /api/users/          403
+  PATCH  /api/users/2         403
+  DELETE /api/users/2         403
+  PUT    /api/panel           403
+  POST   /api/clients/        403
+  PATCH  /api/settings/server 403
+只读接口（期望 200）：
+  /api/clients/ 200   /api/dashboard/metrics 200   /api/traffic/overview 200   /api/2fa/status 200
+```
+
+**没有越权**。清理删除账号 200。
+
+### 模块 7 仍待核对
+
+twofa 恢复码并发消费是否原子、traffic 采样口径、logs 导出上限是否真的生效、notify 的 URL 是否允许内网地址（SSRF）。
