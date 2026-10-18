@@ -14,6 +14,7 @@ import json
 import logging
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
@@ -49,10 +50,48 @@ def save(db: Session, **fields) -> NotifyConfig:
     return row
 
 
+def _allow_private() -> bool:
+    import os
+
+    return (os.environ.get("NOTIFY_ALLOW_PRIVATE") or "").strip() in {"1", "true", "yes"}
+
+
+def _host_is_internal(host: str) -> bool:
+    """判断主机是否落在本机/内网/链路本地/保留段。
+
+    为什么要这一步：webhook 是用户可控的 URL，面板会真的去 POST。只校验 "http(s)://"
+    前缀的话，超管（或拿到超管账号的人）就能把面板当作内网探测器——指向
+    127.0.0.1:7505 的 OpenVPN 管理口、云厂商的 169.254.169.254 元数据地址等等。
+    主机名先做 DNS 解析，所有解析结果都必须干净；解析失败也按"不安全"处理。
+    """
+    import ipaddress
+    import socket
+
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except Exception:  # noqa: BLE001 - 解析不了就拒绝，不给绕过留缝
+        return True
+    for info in infos:
+        addr = info[4][0]
+        try:
+            ip = ipaddress.ip_address(addr)
+        except ValueError:
+            return True
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+            return True
+    return False
+
+
 def _post(url: str, payload: dict) -> tuple[bool, str]:
     """返回 (成功?, 说明)。绝不抛异常。"""
     if not url.startswith(("http://", "https://")):
         return False, "webhook 地址必须是 http:// 或 https://"
+    # SSRF 防线：默认禁止把 webhook 指向本机/内网。确实需要内网 webhook 的部署
+    # 可以显式设 NOTIFY_ALLOW_PRIVATE=1 打开（自担风险）。
+    if not _allow_private():
+        host = urllib.parse.urlsplit(url).hostname or ""
+        if not host or _host_is_internal(host):
+            return False, "webhook 地址不能指向本机或内网（如需允许请设 NOTIFY_ALLOW_PRIVATE=1）"
     data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     req = urllib.request.Request(
         url, data=data, method="POST", headers={"Content-Type": "application/json"}

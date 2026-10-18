@@ -323,3 +323,25 @@ share 一次性令牌能否被重复兑换、traffic 采样口径、users 越权
 ### 模块 7 仍待核对
 
 twofa 恢复码并发消费是否原子、traffic 采样口径、logs 导出上限是否真的生效、notify 的 URL 是否允许内网地址（SSRF）。
+### 第四项核对：notify 的 URL 校验（SSRF）—— 发现并已修
+
+**原状**：`notify._post` 只校验 `url.startswith(("http://","https://"))`，不判主机落在哪里。于是超管（或拿到超管账号的人）可以把 webhook 指到：
+
+- `http://127.0.0.1:7505/x` —— OpenVPN 管理口
+- `http://169.254.169.254/latest/meta-data/` —— 云厂商元数据
+- 任意内网地址
+
+**修法**：新增 `_host_is_internal()`，DNS 解析后逐个 IP 判断 `is_private / is_loopback / is_link_local / is_reserved / is_multicast`，解析失败也按不安全处理；`_post` 在 scheme 校验之后拦一道。确实需要内网 webhook 的部署可显式设 `NOTIFY_ALLOW_PRIVATE=1`。
+
+**验证（本机）**：
+
+```text
+127.0.0.1:7505                     -> False  webhook 地址不能指向本机或内网…
+localhost:8000                     -> False  （同）
+169.254.169.254/latest/meta-data/  -> False  （同）
+10.8.44.1 / 192.168.1.1            -> False  （同）
+NOTIFY_ALLOW_PRIVATE=1 时 127.0.0.1:9 -> 真的去连，URLError（连接被拒，说明开关生效）
+测试套件：241 项通过
+```
+
+**过程中我引入又修掉的一个 bug**：在 `_post` 里写 `import urllib.parse` 会让 `urllib` 变成该函数的局部名，后面的 `urllib.request.Request` 直接 `UnboundLocalError`。改成模块顶部 import 后正常——这类作用域问题只有真跑一遍才会暴露。
