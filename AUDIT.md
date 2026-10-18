@@ -605,3 +605,21 @@ CI: #76 在 99bd6e2 上 success
 ### 结论
 
 1-5、7-8 有充分证据；6、9 部分；10-14 不足。**9 项修复完成（其中 5 项经真机验证），5 项已知问题未修**（升级回滚、2FA 竞态、自动禁用不恢复、备份重试噪音、浏览器级 UI 验证）。
+### 已修复：2FA 恢复码并发竞态（改为条件更新 / CAS）
+
+**原实现**（`auth.py` `_verify_otp_or_recovery`）：读 JSON 列表 → 内存里删掉这张码 → `commit()`。①读 ②改 ③写之间没有条件，两个并发登录拿着同一张码可以**都**通过成员检查。
+
+**改为 compare-and-swap**：
+
+```python
+rows = (db.query(crud.user.model)
+          .filter(crud.user.model.id == user.id,
+                  crud.user.model.totp_recovery == raw)      # WHERE 旧值仍是这一串
+          .update({crud.user.model.totp_recovery: new_raw}, synchronize_session=False))
+db.commit()
+return bool(rows)      # 影响行数为 0 → 说明别人先换了 → 本次失败
+```
+
+只有一个请求能匹配旧值，另一个影响行数为 0。这与 share 令牌采用的条件更新是同一手法。
+
+**验证程度（如实）**：241 项断言通过；**但真正的并发没有测**——没有起两个线程同时用同一张码去验证"只有一个成功"。CAS 在结构上是原子的，SQLite 的 `UPDATE ... WHERE` 也是单语句原子操作，但"结构正确"不等于"测过"。要补的是一个并发测试，本轮余量不足。

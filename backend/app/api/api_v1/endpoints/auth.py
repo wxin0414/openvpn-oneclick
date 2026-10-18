@@ -139,10 +139,19 @@ def _verify_otp_or_recovery(db: Session, user, otp: str) -> bool:
     except Exception:  # noqa: BLE001 - 存储损坏时按失败处理
         return False
     hashed = totp.hash_recovery_code(otp)
-    if hashed in stored:
-        stored.remove(hashed)
-        user.totp_recovery = json.dumps(stored)
-        db.add(user)
-        db.commit()
-        return True
-    return False
+    if hashed not in stored:
+        return False
+
+    stored.remove(hashed)
+    new_raw = json.dumps(stored)
+    # 条件更新（compare-and-swap）：WHERE 里带上"旧值仍然是这一串"，
+    # 并发时只有一个请求能把旧值换成新值，另一个的影响行数为 0 → 返回 False。
+    # 原来的写法是读出来改内存再 commit，两个并发登录可能都通过成员检查，
+    # 同一张恢复码被用两次。（share 令牌那边用的就是条件更新，这边之前没有。）
+    rows = (
+        db.query(crud.user.model)
+        .filter(crud.user.model.id == user.id, crud.user.model.totp_recovery == raw)
+        .update({crud.user.model.totp_recovery: new_raw}, synchronize_session=False)
+    )
+    db.commit()
+    return bool(rows)
