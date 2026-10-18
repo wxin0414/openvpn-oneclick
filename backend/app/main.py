@@ -73,6 +73,24 @@ def _ensure_user_role_column() -> None:
     except Exception:  # noqa: BLE001 - 非 SQLite 或表不存在时跳过
         pass
 
+def _ensure_client_quota_columns() -> None:
+    """给已存在的 clients 表补 expires_at / quota_mb 两列。
+
+    和 users.role 同样的道理：``create_all`` 不会给已有表加列，升级上来的机器必须显式
+    ALTER，否则 Client 模型一读这两列就报 "no such column"，整个客户端页打不开。
+    两列都可空，升级后原有客户端行为不变（不过期、不限量）。
+    """
+    try:
+        with engine.begin() as conn:
+            cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(clients)")}
+            if "expires_at" not in cols:
+                conn.exec_driver_sql("ALTER TABLE clients ADD COLUMN expires_at DATETIME")
+            if "quota_mb" not in cols:
+                conn.exec_driver_sql("ALTER TABLE clients ADD COLUMN quota_mb INTEGER")
+    except Exception:  # noqa: BLE001 - 非 SQLite 或表不存在时跳过
+        pass
+
+
 def create_app() -> FastAPI:
     is_dev = settings.deploy_env.upper() == "DEV"
 
@@ -102,6 +120,7 @@ def create_app() -> FastAPI:
     base.Base.metadata.create_all(bind=engine)
     _ensure_indexes()
     _ensure_user_role_column()
+    _ensure_client_quota_columns()
 
     # seed default admin if not exists
     with get_db_context() as db:
