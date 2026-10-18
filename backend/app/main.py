@@ -72,6 +72,8 @@ def _ensure_user_role_column() -> None:
                 conn.exec_driver_sql(
                     "ALTER TABLE users ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'admin'"
                 )
+            if "password_changed_at" not in cols:
+                conn.exec_driver_sql("ALTER TABLE users ADD COLUMN password_changed_at DATETIME")
             if "totp_secret" not in cols:
                 conn.exec_driver_sql("ALTER TABLE users ADD COLUMN totp_secret VARCHAR(64)")
             if "totp_enabled" not in cols:

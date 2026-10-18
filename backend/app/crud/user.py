@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from app.crud.base import CRUDBase
@@ -30,6 +31,9 @@ class CRUDUser(CRUDBase[User, UserCreate, UserUpdate]):
         update_data = obj_in if isinstance(obj_in, dict) else obj_in.model_dump(exclude_unset=True)
         if "password" in update_data and update_data["password"]:
             update_data["hashed_password"] = get_password_hash(update_data.pop("password"))
+            # 记录改口令时间：签发/校验令牌时用它让旧令牌立即失效
+            # 截到整秒：令牌 iat 是整数秒，带微秒会把"同一秒内签发的新令牌"误判为旧令牌
+            update_data["password_changed_at"] = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
         return super().update(db, db_obj=db_obj, obj_in=update_data)
 
 

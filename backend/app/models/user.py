@@ -18,6 +18,9 @@ class User(Base):
     is_superuser: Mapped[bool] = mapped_column(Boolean, default=False)
     # admin：全部权限；viewer：只读运维（能看所有页面，所有写操作被中间件拦掉）
     role: Mapped[str] = mapped_column(String(20), default="admin")
+    # 改口令的时间：签发令牌写 iat，校验时要求 iat >= 这个值，
+    # 这样"改了口令但旧令牌还能用 120 分钟"的窗口就没了
+    password_changed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # 2FA：secret 只在用户开启时写入；恢复码存 sha256 列表（JSON 数组），用掉即删
     totp_secret: Mapped[str | None] = mapped_column(String(64), nullable=True)
     totp_enabled: Mapped[bool] = mapped_column(Boolean, default=False)

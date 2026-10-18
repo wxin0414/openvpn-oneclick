@@ -20,5 +20,6 @@ def get_password_hash(password: str) -> str:
 
 def create_access_token(subject: str, expires_delta: timedelta | None = None) -> str:
     expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=settings.access_token_expire_minutes))
-    to_encode: dict[str, Any] = {"sub": subject, "exp": expire}
+    # iat 用于"改口令后旧令牌立即失效"：见 api/security.py
+    to_encode: dict[str, Any] = {"sub": subject, "exp": expire, "iat": datetime.now(timezone.utc)}
     return jwt.encode(to_encode, settings.secret_key, algorithm="HS256")

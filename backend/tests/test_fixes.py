@@ -860,6 +860,12 @@ def main() -> int:
             data={"username": "admin", "password": "brand-new-password-456"},
         )
         expect("C16 新口令可以登录", relogin.status_code, 200)
+        # 本轮新增的不变量：改口令后，改之前签发的令牌必须立刻失效。
+        # 没有这条时，口令疑似泄露后改口令，旧令牌仍可用满 ACCESS_TOKEN_EXPIRE_MINUTES。
+        expect("C16b 改口令后旧令牌立即失效", client.get("/api/panel", headers=headers).status_code, 401)
+        token = relogin.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+        expect("C16c 新令牌可用", client.get("/api/panel", headers=headers).status_code, 200)
 
         # 登录限速
         for _ in range(5):

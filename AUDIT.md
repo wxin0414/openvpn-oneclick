@@ -55,7 +55,24 @@
 | 口令哈希方案 | 通过 | `bcrypt_sha256`（`core/security.py` L9），避开 bcrypt 72 字节截断 |
 | 登录限速 | 通过 | 键为 `用户名@IP`（跨 IP 无法锁死管理员）、成功后重置、锁定用 `monotonic`、`_MAX_KEYS` 上限防内存增长 |
 | 2FA 失败也计入限速 | 通过 | `auth.py` 中 `_verify_otp_or_recovery` 失败后调用 `ratelimit.register_failure` |
-| **改口令后旧令牌仍可用** | **发现问题（未修）** | 见下 |
+| **改口令后旧令牌仍可用** | **已修复** | 见下 |
+
+### 已修复：改口令后旧令牌立即失效（`users.password_changed_at` + 令牌 `iat`）
+
+**原缺陷**：签发只写 `sub`+`exp`，校验只查签名与 `is_active`，所以改口令不影响已签发令牌。
+
+**修法（5 处）**：
+1. `models/user.py`：新增 `password_changed_at`（DateTime，可空）
+2. `main.py`：`PRAGMA` 探测 + `ALTER TABLE users ADD COLUMN password_changed_at DATETIME`
+3. `core/security.py`：令牌载荷加 `iat`
+4. `api/security.py`：`password_changed_at` 存在且 `iat < password_changed_at` → 401
+5. `crud/user.py`：`update()` 改口令时写 `password_changed_at`（**截到整秒**）
+
+**踩到的坑（值得记）**：第一版用带微秒的时间戳，而 `iat` 是整数秒，导致**同一秒内签发的新令牌被误判为旧令牌**——19 个测试直接 401。改成整秒比较后通过。这类"精度不一致"的 bug 很难靠读代码发现，是测试逼出来的。
+
+**测试**：`test_fixes.py` 新增两条回归断言（C16b 旧令牌 401 / C16c 新令牌 200），全部 **241 项通过**（原 239）。测试本身原来在改口令后继续复用旧令牌，属于依赖旧行为，已改为换用新令牌。
+
+**真机验证**：待下一轮（用临时用户跑一遍：登录→改口令→旧令牌应 401），本轮未做，不写"已验证"。
 
 ### 发现：改口令 / 疑似泄露后，旧令牌在到期前始终有效
 
