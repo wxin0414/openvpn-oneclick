@@ -21,6 +21,8 @@ class Client(Base):
     expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # 流量配额（MB，累计）。达到后同样写 disable；NULL 表示不限
     quota_mb: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # 分组：纯标签，用于按组筛选与批量导出；为空表示未分组
+    group_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now_shanghai_naive)
 
     certificate_id: Mapped[int | None] = mapped_column(ForeignKey("certificates.id"), nullable=True)

@@ -13,6 +13,7 @@ class ClientBase(BaseModel):
     # 到期时间与流量配额：为空表示不过期 / 不限量
     expires_at: datetime | None = None
     quota_mb: int | None = Field(default=None, ge=0, le=10000000)
+    group_name: str | None = Field(default=None, max_length=64)
 
     @field_validator("name", "common_name")
     @classmethod
@@ -35,6 +36,7 @@ class ClientUpdate(BaseModel):
     # 到期时间 / 配额（MB）：改这两个值也会触发 CCD 重算
     expires_at: datetime | None = None
     quota_mb: int | None = Field(default=None, ge=0, le=10000000)
+    group_name: str | None = Field(default=None, max_length=64)
 
 
 class ClientOnline(BaseModel):

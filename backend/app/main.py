@@ -89,6 +89,8 @@ def _ensure_client_quota_columns() -> None:
                 conn.exec_driver_sql("ALTER TABLE clients ADD COLUMN expires_at DATETIME")
             if "quota_mb" not in cols:
                 conn.exec_driver_sql("ALTER TABLE clients ADD COLUMN quota_mb INTEGER")
+            if "group_name" not in cols:
+                conn.exec_driver_sql("ALTER TABLE clients ADD COLUMN group_name VARCHAR(64)")
     except Exception:  # noqa: BLE001 - 非 SQLite 或表不存在时跳过
         pass
 
