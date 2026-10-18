@@ -399,3 +399,20 @@ model_dump:
 我第一次扫 `exclude_none` 用了 `Select-String -Path "$repo\backend\app\**\*.py"`，PowerShell 的
 `**` 在这里**不会递归**，于是输出为空、我差点写成"全项目只有一处"。改用
 `Get-ChildItem -Recurse | Select-String` 才拿到真实结果（两处）。结论：**"grep 没结果"在这套环境里不能直接当结论。**
+### 真机复验（部署后）
+
+```text
+1) 部署前遗留：{"enabled":false,"webhook_url":"http://169.254.169.254/latest/meta-data/",…}
+2) PUT {"webhook_url":null} -> 200
+   结果：{"enabled":false,"webhook_url":"",…}          ← 清空生效（上一轮的 bug 确认修好）
+3) 再把地址指向 127.0.0.1:7505 并 test：
+   {"ok":false,"reason":"webhook 地址不能指向本机或内网（…）"}   ← SSRF 防线仍在
+4) 最终配置：{"enabled":false,"webhook_url":""}         ← 已还原干净
+   服务：openvpn@server / ovpnmanager / nginx 全部 active
+```
+
+**结论**：SSRF 修复 + 清空修复都在真机生效，服务器上遗留的内网地址已清除。
+
+### 模块 7 剩余（未核对）
+
+2FA 恢复码并发消费的原子性、traffic 采样口径与配额计算、审计 CSV 导出的 5 万行上限是否真的生效。
