@@ -34,7 +34,11 @@ api.interceptors.response.use(
   (error) => {
     const status = error?.response?.status;
     const message = error?.response?.data?.detail || error.message || "请求失败";
-    if (status === 401) {
+    // 401 分两种：会话过期（要跳登录页）与"口令对了、还缺验证码"（要留在原地弹输入框）。
+    // 原来的写法不看响应头，把 2FA 挑战也当成过期 —— 整页跳转会清掉组件状态，
+    // 验证码输入框永远设置不上（真机浏览器实测：登录返回 401，界面仍是原表单）。
+    const needsOtp = Boolean(error?.response?.headers?.["x-2fa-required"]);
+    if (status === 401 && !needsOtp) {
       localStorage.removeItem("token");
       window.location.href = `${BASE_PATH}/login`;
     }
