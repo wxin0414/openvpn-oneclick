@@ -2222,8 +2222,9 @@ main() {
     addclient)     validate_client_name "$CLIENT_NAME"; detect_os >/dev/null 2>&1 || true; resolve_openvpn_layout; add_client "$CLIENT_NAME"; print_summary; exit 0 ;;
     revokeclient)  validate_client_name "$CLIENT_NAME"; detect_os >/dev/null 2>&1 || true; resolve_openvpn_layout; revoke_client "$CLIENT_NAME"; exit 0 ;;
     exportclient)  validate_client_name "$CLIENT_NAME"; detect_os >/dev/null 2>&1 || true; resolve_openvpn_layout; export_client "$CLIENT_NAME"; exit 0 ;;
-    uninstall)     detect_os; uninstall; exit 0 ;;
-    check-update)  check_update; exit $? ;;
+    # detect_os 失败（发行版升级/无法识别）时仍应允许卸载：其他动作都用了 || true
+    uninstall)     detect_os >/dev/null 2>&1 || true; uninstall; exit 0 ;;
+    check-update)  detect_os >/dev/null 2>&1 || true; check_update; exit $? ;;
     update)        do_update; exit 0 ;;
   esac
 
