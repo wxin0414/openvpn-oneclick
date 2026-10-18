@@ -8,6 +8,8 @@ import router from "./router";
 // Element Plus stylesheets and win on import order.
 import "./assets/base.css";
 import "./styles/theme.css";
+// Element Plus 的暗色变量：只有加上 html.dark 时才生效（见 App.vue 的主题切换）
+import "element-plus/theme-chalk/dark/css-vars.css";
 
 // Element Plus is loaded on demand by unplugin-auto-import /
 // unplugin-vue-components (see vite.config.js):

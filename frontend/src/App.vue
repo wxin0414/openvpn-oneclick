@@ -15,11 +15,21 @@
       <el-menu :default-active="activeMenu" router :collapse="!isDesktop" :collapse-transition="false" class="menu">
         <el-menu-item v-for="item in menuItems" :key="item.path" :index="item.path">
           <el-icon><i :class="item.icon"></i></el-icon>
-          <template #title>{{ item.label }}</template>
+          <template #title>{{ t(item.label) }}</template>
         </el-menu-item>
       </el-menu>
       <div class="sidebar-footer">
         <span v-show="isDesktop" class="version">v{{ version }}</span>
+        <el-tooltip :content="isDark ? '切换到浅色' : '切换到暗色'" placement="right" :show-after="200">
+          <button type="button" class="icon-btn" aria-label="切换主题" @click="toggleTheme">
+            <el-icon><i :class="isDark ? 'ri-sun-line' : 'ri-moon-line'"></i></el-icon>
+          </button>
+        </el-tooltip>
+        <el-tooltip :content="lang === 'en' ? '切换中文' : 'Switch to English'" placement="right" :show-after="200">
+          <button type="button" class="icon-btn" aria-label="切换语言" @click="toggleLang">
+            <span style="font-size: 12px; font-weight: 600">{{ lang === "en" ? "中" : "EN" }}</span>
+          </button>
+        </el-tooltip>
         <el-tooltip content="退出" placement="right" :show-after="200" :disabled="isDesktop">
           <button type="button" class="icon-btn" aria-label="退出登录" @click="logout">
             <el-icon><i class="ri-logout-box-r-line"></i></el-icon>
@@ -43,7 +53,7 @@
         <el-menu :default-active="activeMenu" router class="menu" @select="drawerOpen = false">
           <el-menu-item v-for="item in menuItems" :key="item.path" :index="item.path">
             <el-icon><i :class="item.icon"></i></el-icon>
-            <template #title>{{ item.label }}</template>
+            <template #title>{{ t(item.label) }}</template>
           </el-menu-item>
         </el-menu>
         <div class="drawer-foot">
@@ -93,7 +103,11 @@ const version = ref(pkgVersion);
 
 // 页脚版本以后端为准（见 backend/app/version.py）。请求失败就保持 package.json 的兜底值，
 // 不因为一个版本号把整个界面卡住。
-onMounted(async () => {
+onMounted(() => {
+  isDark.value = localStorage.getItem("theme") === "dark";
+  lang.value = localStorage.getItem("lang") === "en" ? "en" : "zh";
+  applyTheme();
+});onMounted(async () => {
   try {
     const res = await fetch("/api/health/version", { cache: "no-store" });
     if (res.ok) {
@@ -114,6 +128,47 @@ const drawerOpen = ref(false);
 
 // Routes and menu entries are unchanged; the OpenVPN control page keeps its
 // route but stays out of the menu, exactly as before.
+// ---- 主题与语言 ------------------------------------------------------------
+// 两者都存 localStorage：面板是自建工具，用户不希望每次刷新都要重新点一次。
+const isDark = ref(false);
+const lang = ref("zh");
+
+const I18N = {
+  zh: {},
+  en: {
+    仪表盘: "Dashboard",
+    服务器管理: "Server",
+    客户端管理: "Clients",
+    服务端设置: "OpenVPN Settings",
+    面板设置: "Panel Settings",
+    日志审计: "Audit Logs",
+    用户管理: "Users",
+    通知设置: "Notifications",
+  },
+};
+
+function t(key) {
+  const table = I18N[lang.value] || {};
+  return table[key] || key;
+}
+
+function applyTheme() {
+  const root = document.documentElement;
+  if (isDark.value) root.classList.add("dark");
+  else root.classList.remove("dark");
+}
+
+function toggleTheme() {
+  isDark.value = !isDark.value;
+  localStorage.setItem("theme", isDark.value ? "dark" : "light");
+  applyTheme();
+}
+
+function toggleLang() {
+  lang.value = lang.value === "en" ? "zh" : "en";
+  localStorage.setItem("lang", lang.value);
+}
+
 const menuItems = [
   { path: "/", label: "仪表盘", icon: "ri-dashboard-line" },
   { path: "/servers", label: "服务器管理", icon: "ri-server-line" },
