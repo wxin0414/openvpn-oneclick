@@ -566,3 +566,42 @@ return Promise.reject(wrapped);      // ← 没有 response
 ### 顺带记录：blob 请求的错误文案
 
 `responseType: "blob"` 的请求出错时 `error.response.data` 是 Blob，`data.detail` 取不到，会退化成 `Request failed with status code 4xx`。组件都有兜底文案，暂不改；记在这里。
+---
+
+## 最终验收（v2.0.0 部署后，真机）
+
+```text
+version = 2.0.0          home = 200
+selfcheck = warn  {'ok': 11, 'warn': 1, 'fail': 0}    （warn 是有意关闭的面板 TLS）
+抽查（全部 200）：clients / dashboard/metrics / traffic/overview / 2fa/status /
+                 panel/backups / settings/server / notify / users / servers
+POST /api/servers/                -> 405   （误导性接口已删除，符合预期）
+GET  /api/servers/control/status  -> 405   （控制接口是 POST，用 GET 探测得到 405 是正确的；
+                                             之前那次 404 已修复并验证过 POST 返回 200）
+notify 测试（内网地址）-> {"ok":false,"reason":"webhook 地址不能指向本机或内网（…）"}
+services: openvpn@server / ovpnmanager / nginx / apply.socket 全部 active
+CI: #76 在 99bd6e2 上 success
+```
+
+### 14 个模块的实际覆盖度（不美化）
+
+| 模块 | 覆盖 | 依据 |
+| --- | --- | --- |
+| 1 安装器 | 完整 | 读代码 + `bash -n` + 93 断言，修 1 处 |
+| 2 模板助手 | 完整 | 映射/安装/socket 真机 + 未知动作注入 + 协议比对 |
+| 3 auth/security | 完整 | 读代码 + 241 断言 + 真机令牌失效验证 |
+| 4 clients/certs | 完整 | 读代码 + 真机删除吊销验证 + 241 断言；并发仅代码证据 |
+| 5 settings | 完整 | 契约逐字比对 + 回滚路径读代码；往返仅测试覆盖 |
+| 6 panel | 部分 | TLS 相关读代码；升级只加快照且**未真机验证**；备份/网络未真机 |
+| 7 其余端点 | 完整 | 匿名面/分享一次性/越权/SSRF/CSV 上限 全真机；2FA 竞态发现未修 |
+| 8 服务层 | 完整 | backup_scheduler/status_sync/selfcheck 读代码+真机输出；alert_worker 未复测 |
+| 9 前端基础 | 部分 | 拦截器 bug 已修 + 构建通过；**浏览器未验证** |
+| 10 ClientsView | 未单独核对 | 其依赖的 api 行为已在模块 4 覆盖 |
+| 11 其余页面 | 未核对 | — |
+| 12 Docker | 仅静态 | 文件存在、compose 端口正确；**镜像未构建运行** |
+| 13 测试覆盖 | 部分 | 知道 241 后端 + 93 安装器；未做覆盖面分析 |
+| 14 文档一致性 | 部分 | README 早前已更新；本轮补了 CHANGELOG，未做全文对照 |
+
+### 结论
+
+1-5、7-8 有充分证据；6、9 部分；10-14 不足。**9 项修复完成（其中 5 项经真机验证），5 项已知问题未修**（升级回滚、2FA 竞态、自动禁用不恢复、备份重试噪音、浏览器级 UI 验证）。
