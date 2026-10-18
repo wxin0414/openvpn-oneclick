@@ -152,15 +152,17 @@ def delete_client_task(client_id: int, passphrase: str | None, actor: str) -> di
         if client is None:
             raise RuntimeError(f"client {client_id} not found")
         common_name = client.common_name
-        export_path = settings.openvpn_client_export_path / f"{common_name}.ovpn"
 
+        # 吊销不能以"导出文件是否存在"为前提。原来的写法是 `if export_path.exists()`，
+        # 于是"建了客户端但没导出过配置"（或用户手动删了 .ovpn）时，删除流程会跳过吊销：
+        # 证书留在 PKI 里仍是 valid、CRL 也没重新生成，手里留着旧配置的人照样能连上来。
+        # 现在一律尝试吊销，失败只记日志（本来就没有证书、或已经吊销过都会走到这里）。
         revoked = False
-        if export_path.exists():
-            try:
-                certs.revoke_client_cert(db, client, passphrase=passphrase)
-                revoked = True
-            except Exception:  # noqa: BLE001
-                logger.exception("删除时吊销证书失败 cn=%s", common_name)
+        try:
+            certs.revoke_client_cert(db, client, passphrase=passphrase)
+            revoked = True
+        except Exception:  # noqa: BLE001
+            logger.exception("删除时吊销证书失败 cn=%s（可能本来就没有证书或已吊销）", common_name)
 
         if revoked:
             try:
